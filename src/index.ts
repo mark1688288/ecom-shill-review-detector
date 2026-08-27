@@ -15,3 +15,16 @@ export {
   readLatestRun,
   printPipelineRunId,
 } from './shared/run-id.js';
+export {
+  sha256Hex,
+  hmacSha256Hex,
+  stripTrackingQueryParams,
+  REVIEW_ID_VERSION,
+} from './shared/ids.js';
+export {
+  hashReviewerId,
+  contentHash,
+  sourceUrlHash,
+  makeReviewId,
+} from './crawler/hash.js';
+export type { MakeReviewIdInput } from './crawler/hash.js';
