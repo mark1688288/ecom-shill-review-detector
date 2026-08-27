@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import type { LanguageHint } from '../../shared/types.js';
+import { z } from 'zod';
+import { LANGUAGE_HINTS, type LanguageHint } from '../../shared/types.js';
 import type { NormalizedReview } from '../adapter.js';
 import { contentHash, makeReviewId, sourceUrlHash } from '../hash.js';
 import { charLengthCodePoints } from '../normalize.js';
@@ -103,6 +104,74 @@ export function toRawReviewNdjson(
   };
 }
 
+const rawReviewNdjsonSchema = z
+  .object({
+    review_id: z.string().min(1),
+    marketplace: z.string().min(1),
+    native_review_id: z.string().min(1).nullable(),
+    store_id: z.string().min(1),
+    product_id: z.string().min(1),
+    reviewer_id_hash: z.string().min(1),
+    star_rating: z.number().int().min(1).max(5),
+    comment_text: z.string().min(1),
+    content_hash: z.string().min(1),
+    review_ts: z.string().min(1),
+    ingested_at: z.string().min(1),
+    crawl_batch_id: z.string().uuid(),
+    pipeline_run_id: z.string().min(1),
+    source_url_hash: z.string().min(1).nullable(),
+    language_hint: z.enum(LANGUAGE_HINTS),
+    has_media: z.boolean(),
+    raw_payload_hash: z.string().min(1),
+    char_length: z.number().int().nonnegative(),
+    updated_at: z.string().min(1),
+  })
+  .strict();
+
+export function serializeReviewsNdjson(rows: Iterable<RawReviewNdjson>): string {
+  const list = [...rows];
+  return list.length === 0 ? '' : `${list.map((row) => JSON.stringify(row)).join('\n')}\n`;
+}
+
+export function parseRawReviewNdjsonLine(line: string, lineNo: number): RawReviewNdjson {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line) as unknown;
+  } catch {
+    throw new Error(`NDJSON line ${String(lineNo)} is not valid JSON`);
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`NDJSON line ${String(lineNo)} must be a JSON object`);
+  }
+  const record = parsed as Record<string, unknown>;
+  for (const key of FORBIDDEN_NDJSON_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(record, key)) {
+      throw new Error(`NDJSON line ${String(lineNo)} contains forbidden key ${key}`);
+    }
+  }
+  const result = rawReviewNdjsonSchema.safeParse(record);
+  if (!result.success) {
+    throw new Error(
+      `NDJSON line ${String(lineNo)} is not a valid raw review: ${result.error.message}`,
+    );
+  }
+  return result.data;
+}
+
+export function readReviewsNdjson(filePath: string): RawReviewNdjson[] {
+  const text = readFileSync(filePath, 'utf8');
+  const rows: RawReviewNdjson[] = [];
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line === undefined || line.trim().length === 0) {
+      continue;
+    }
+    rows.push(parseRawReviewNdjsonLine(line, i + 1));
+  }
+  return rows;
+}
+
 export function lastWriteWins(rows: Iterable<RawReviewNdjson>): {
   rows: RawReviewNdjson[];
   n_deduped: number;
@@ -124,9 +193,7 @@ export function writeReviewsNdjson(
 ): { n_written: number; n_deduped: number } {
   const { rows: unique, n_deduped } = lastWriteWins(rows);
   mkdirSync(path.dirname(filePath), { recursive: true });
-  const body =
-    unique.length === 0 ? '' : `${unique.map((row) => JSON.stringify(row)).join('\n')}\n`;
-  writeFileSync(filePath, body, 'utf8');
+  writeFileSync(filePath, serializeReviewsNdjson(unique), 'utf8');
   return { n_written: unique.length, n_deduped };
 }
 

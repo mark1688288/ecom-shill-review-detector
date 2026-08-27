@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: GPL-3.0-only
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Command, Option } from 'commander';
 import { crawlAction } from './commands/crawl.js';
+import { loadAction } from './commands/load.js';
 
 function notImplemented(commandName: string): () => never {
   return () => {
@@ -72,13 +75,12 @@ export function buildProgram(): Command {
       .option('--ndjson <file>', 'NDJSON file to load')
       .option('--gcs-uri <gs://...>', 'Staging object URI; uploaded if omitted and not dry-run')
       .addOption(
-        new Option('--load-mode <mode>', 'gcs (default) or direct (tests only)').choices([
-          'gcs',
-          'direct',
-        ]),
+        new Option('--load-mode <mode>', 'gcs (default) or direct (tests only)')
+          .choices(['gcs', 'direct'])
+          .default('gcs'),
       )
       .option('--dataset <id>', 'BigQuery dataset (default env BQ_DATASET)'),
-  ).action(notImplemented('load'));
+  ).action(loadAction);
 
   addRunFlags(program.command('layer1').description('Materialize stage1_filtered for a pipeline run')).action(
     notImplemented('layer1'),
@@ -122,4 +124,16 @@ export function buildProgram(): Command {
   return program;
 }
 
-buildProgram().parse(argvWithoutPnpmSeparator(process.argv));
+function isCliEntrypoint(): boolean {
+  const entry = process.argv[1];
+  if (entry === undefined) {
+    return false;
+  }
+  const self = fileURLToPath(import.meta.url);
+  const resolved = path.resolve(entry);
+  return resolved === self || path.basename(resolved) === path.basename(self);
+}
+
+if (isCliEntrypoint()) {
+  buildProgram().parse(argvWithoutPnpmSeparator(process.argv));
+}
