@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, Option } from 'commander';
 import { crawlAction } from './commands/crawl.js';
+import { layer1Action } from './commands/layer1.js';
 import { loadAction } from './commands/load.js';
 
 function notImplemented(commandName: string): () => never {
@@ -86,7 +87,7 @@ export function buildProgram(): Command {
   ).action(loadAction);
 
   addRunFlags(program.command('layer1').description('Materialize stage1_filtered for a pipeline run')).action(
-    notImplemented('layer1'),
+    layer1Action,
   );
 
   addRunFlags(

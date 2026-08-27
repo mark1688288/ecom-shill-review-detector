@@ -24,3 +24,6 @@ apply_sql() {
 apply_sql "${DDL_DIR}/00_dataset.sql"
 apply_sql "${DDL_DIR}/01_pipeline_runs.sql"
 apply_sql "${DDL_DIR}/02_raw_reviews.sql"
+apply_sql "${DDL_DIR}/03_logistics_canned_phrases.sql"
+apply_sql "${DDL_DIR}/05_stage1_filtered.sql"
+apply_sql "${DDL_DIR}/05b_layer1_exclusion_audit.sql"
