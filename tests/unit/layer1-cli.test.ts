@@ -50,6 +50,17 @@ type QueryCall = {
   params?: Record<string, unknown>;
 };
 
+function assertNoNullParams(calls: QueryCall[]): void {
+  for (const call of calls) {
+    if (call.params === undefined) {
+      continue;
+    }
+    for (const [key, value] of Object.entries(call.params)) {
+      expect(value, key).not.toBeNull();
+    }
+  }
+}
+
 function mockBigQuery(opts: {
   existingRun?: boolean;
   tables?: string[];
@@ -63,6 +74,11 @@ function mockBigQuery(opts: {
     query: async (options: { query: string; params?: Record<string, unknown> }) => {
       const call: QueryCall = { query: options.query };
       if (options.params !== undefined) {
+        for (const [key, value] of Object.entries(options.params)) {
+          if (value === null) {
+            throw new Error(`null query param ${key} is not encodable without types`);
+          }
+        }
         call.params = options.params;
       }
       calls.push(call);
@@ -232,6 +248,20 @@ describe('runLayer1 with mock BigQuery', () => {
     );
     const script = calls.find((c) => c.query.includes('CREATE TEMP TABLE _phrases'));
     expect(script?.params?.['pipeline_run_id']).toBe(RUN);
+    const insert = calls.find((c) => c.query.includes('INSERT INTO') && c.query.includes('pipeline_runs'));
+    expect(insert?.query).toContain('CAST(NULL AS TIMESTAMP)');
+    expect(insert?.query).toContain('CAST(NULL AS INT64)');
+    expect(insert?.query).toContain('CAST(NULL AS STRING)');
+    expect(insert?.params).not.toHaveProperty('finished_at');
+    expect(insert?.params).not.toHaveProperty('rows_in');
+    expect(insert?.params).not.toHaveProperty('rows_out');
+    expect(insert?.params).not.toHaveProperty('error_message');
+    const updates = calls.filter((c) => c.query.includes('UPDATE') && c.query.includes('pipeline_runs'));
+    for (const update of updates) {
+      expect(update.params).not.toHaveProperty('seed_version');
+      expect(update.params).not.toHaveProperty('started_at');
+    }
+    assertNoNullParams(calls);
     expect(statuses).toEqual(['running', 'succeeded']);
     expect(statuses).not.toContain('failed');
   });
@@ -271,7 +301,26 @@ describe('runLayer1 with mock BigQuery', () => {
     expect(calls.filter((c) => c.query.includes('UPDATE') && c.query.includes('pipeline_runs')).length).toBe(
       2,
     );
+    assertNoNullParams(calls);
     expect(statuses).toEqual(['running', 'succeeded']);
+  });
+
+  it('marks failed when the Layer 1 script job throws', async () => {
+    const dir = await tmp();
+    const { bq, calls, statuses } = mockBigQuery({ failScript: true });
+    await expect(
+      runLayer1({
+        pipelineRunId: RUN,
+        cwd: dir,
+        latestPath: path.join(dir, 'data', 'runs', 'latest'),
+        env: gcpEnv(),
+        stdout: { write: () => undefined },
+        bigquery: bq,
+      }),
+    ).rejects.toThrow(/script failed/);
+    expect(statuses).toEqual(['running', 'failed']);
+    expect(statuses).not.toContain('succeeded');
+    assertNoNullParams(calls);
   });
 
   it('fails clearly when DDL tables are missing', async () => {
