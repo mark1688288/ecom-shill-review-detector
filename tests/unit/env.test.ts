@@ -1,0 +1,136 @@
+// SPDX-License-Identifier: GPL-3.0-only
+import { describe, expect, it } from 'vitest';
+import {
+  assertSalt,
+  commandRequiresGcp,
+  loadDefaultConfig,
+  loadEnv,
+} from '../../src/shared/env.js';
+
+const VALID_SALT = '0123456789abcdef';
+
+describe('assertSalt', () => {
+  it('throws when salt is missing', () => {
+    expect(() => assertSalt(undefined)).toThrow(/REVIEWER_ID_SALT/);
+  });
+
+  it('throws when salt is an empty string (never a silent default)', () => {
+    expect(() => assertSalt('')).toThrow(/REVIEWER_ID_SALT/);
+  });
+
+  it('throws when salt is shorter than 16 characters', () => {
+    expect(() => assertSalt('short-salt')).toThrow(/at least 16/);
+  });
+
+  it('accepts a 16-character salt', () => {
+    expect(assertSalt(VALID_SALT)).toBe(VALID_SALT);
+  });
+});
+
+describe('loadEnv', () => {
+  it('loads crawl --dry-run with only REVIEWER_ID_SALT (no GCP_PROJECT)', () => {
+    const loaded = loadEnv({
+      command: 'crawl',
+      dryRun: true,
+      env: { REVIEWER_ID_SALT: VALID_SALT },
+    });
+    expect(loaded.hmac.REVIEWER_ID_SALT).toBe(VALID_SALT);
+    expect(loaded.gcp).toBeUndefined();
+    expect(loaded.config.layer2.embedding_model).toBe(
+      'text-multilingual-embedding-002',
+    );
+  });
+
+  it('throws on crawl dry-run when salt is missing', () => {
+    expect(() =>
+      loadEnv({
+        command: 'crawl',
+        dryRun: true,
+        env: {},
+      }),
+    ).toThrow(/REVIEWER_ID_SALT/);
+  });
+
+  it('throws on crawl dry-run when salt is too short', () => {
+    expect(() =>
+      loadEnv({
+        command: 'crawl',
+        dryRun: true,
+        env: { REVIEWER_ID_SALT: 'too-short' },
+      }),
+    ).toThrow(/REVIEWER_ID_SALT/);
+  });
+
+  it('does not require GCP_PROJECT for non-dry-run crawl', () => {
+    const loaded = loadEnv({
+      command: 'crawl',
+      env: { REVIEWER_ID_SALT: VALID_SALT },
+    });
+    expect(loaded.gcp).toBeUndefined();
+  });
+
+  it('requires GCP_PROJECT for load', () => {
+    expect(() =>
+      loadEnv({
+        command: 'load',
+        env: { REVIEWER_ID_SALT: VALID_SALT },
+      }),
+    ).toThrow(/GCP_PROJECT/);
+  });
+
+  it('loads load when GCP vars are present', () => {
+    const loaded = loadEnv({
+      command: 'load',
+      env: {
+        REVIEWER_ID_SALT: VALID_SALT,
+        GCP_PROJECT: 'demo-project',
+        GCP_LOCATION: 'asia-east1',
+        BQ_DATASET: 'ecom_shill',
+      },
+    });
+    expect(loaded.gcp?.GCP_PROJECT).toBe('demo-project');
+    expect(loaded.gcp?.GCP_LOCATION).toBe('asia-east1');
+  });
+
+  it('lets EMBEDDING_MODEL override yaml (004 is opt-in)', () => {
+    const loaded = loadEnv({
+      command: 'crawl',
+      dryRun: true,
+      env: {
+        REVIEWER_ID_SALT: VALID_SALT,
+        EMBEDDING_MODEL: 'text-embedding-004',
+      },
+    });
+    expect(loaded.config.layer2.embedding_model).toBe('text-embedding-004');
+  });
+});
+
+describe('commandRequiresGcp', () => {
+  it('is false for dry-run regardless of command', () => {
+    expect(commandRequiresGcp('load', true)).toBe(false);
+    expect(commandRequiresGcp('audit', true)).toBe(false);
+  });
+
+  it('is false for crawl and seeds', () => {
+    expect(commandRequiresGcp('crawl', false)).toBe(false);
+    expect(commandRequiresGcp('seeds', false)).toBe(false);
+  });
+
+  it('is true for load and downstream commands', () => {
+    expect(commandRequiresGcp('load', false)).toBe(true);
+    expect(commandRequiresGcp('layer1', false)).toBe(true);
+    expect(commandRequiresGcp('layer2', false)).toBe(true);
+    expect(commandRequiresGcp('audit', false)).toBe(true);
+    expect(commandRequiresGcp('analyze', false)).toBe(true);
+    expect(commandRequiresGcp('report', false)).toBe(true);
+  });
+});
+
+describe('loadDefaultConfig', () => {
+  it('defaults to multilingual-002 and hypothesis seed version', () => {
+    const config = loadDefaultConfig();
+    expect(config.layer2.embedding_model).toBe('text-multilingual-embedding-002');
+    expect(config.seed_version).toBe('v0_hypothesis');
+    expect(config.layer2.cosine_distance_threshold).toBe(0.28);
+  });
+});

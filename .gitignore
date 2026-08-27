@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+# dependencies & build
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# secrets & local env (keep .env.example)
+.env
+.env.local
+.env.*.local
+
+# pipeline runtime output
+data/
+reports/
+*.ndjson
+
+# local GCP overlay (template is config/gcp.example.yaml)
+config/gcp.yaml
+gcp.yaml
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+.idea/

@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Default thresholds and model ids. Env vars override. No secrets.
+
+layer2:
+  cosine_distance_threshold: 0.28 # hypothesis; not a CI funnel SLA
+  embedding_model: text-multilingual-embedding-002
+  # override via EMBEDDING_MODEL=text-embedding-004 (English-oriented; explicit only)
+  task_type: SEMANTIC_SIMILARITY
+  review_embed_batch_rows: 5000
+  comment_char_cap: 1500
+cross_store:
+  cosine_distance_threshold: 0.20 # second uncalibrated cut
+gemini:
+  model: gemini-3.5-flash # check current GA Flash; do not hardcode a retired id in src/
+  thinking_budget: 0 # 2.5 family only
+  thinking_level: MINIMAL # 3.x; use OFF if GA supports it
+  temperature: 0
+  max_output_tokens: 1024
+audit:
+  concurrency: 8
+  default_limit_non_prod: 100
+  max_reviews_per_run: 5000
+seed_version: v0_hypothesis
+prompt_version: v1
