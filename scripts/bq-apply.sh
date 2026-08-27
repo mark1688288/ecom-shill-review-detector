@@ -15,10 +15,10 @@ apply_sql() {
   sql="$(<"$file")"
   sql="${sql//ecom_shill/${BQ_DATASET}}"
   sql="${sql//asia-east1/${GCP_LOCATION}}"
-  bq --location="${GCP_LOCATION}" --project_id="${GCP_PROJECT}" query \
+  # stdin: DDL files start with `-- SPDX...`; a positional query argv would be parsed as a flag.
+  printf '%s\n' "$sql" | bq --location="${GCP_LOCATION}" --project_id="${GCP_PROJECT}" query \
     --use_legacy_sql=false \
-    --nouse_cache \
-    "${sql}"
+    --nouse_cache
 }
 
 apply_sql "${DDL_DIR}/00_dataset.sql"

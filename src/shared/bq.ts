@@ -48,7 +48,6 @@ export function quotedInformationSchemaTables(config: BqConfig): string {
   return `\`${config.project}.${config.dataset}.INFORMATION_SCHEMA.TABLES\``;
 }
 
-/** Construct on first use. Never call at module load. */
 export function getBigQuery(config: BqConfig): BigQuery {
   assertBqConfig(config);
   return new BigQuery({

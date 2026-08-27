@@ -73,7 +73,10 @@ export function buildProgram(): Command {
       .command('load')
       .description('Load NDJSON into BigQuery raw_reviews via staging MERGE')
       .option('--ndjson <file>', 'NDJSON file to load')
-      .option('--gcs-uri <gs://...>', 'Staging object URI; uploaded if omitted and not dry-run')
+      .option(
+        '--gcs-uri <gs://...>',
+        'Staging object URI; if omitted, upload to GCS_STAGING_BUCKET or {GCP_PROJECT}-ecom-shill-staging',
+      )
       .addOption(
         new Option('--load-mode <mode>', 'gcs (default) or direct (tests only)')
           .choices(['gcs', 'direct'])

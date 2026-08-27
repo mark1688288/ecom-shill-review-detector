@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-import type { BigQuery, JobLoadMetadata } from '@google-cloud/bigquery';
+import type { BigQuery, JobLoadMetadata, Table } from '@google-cloud/bigquery';
 import { Storage } from '@google-cloud/storage';
 import type { Logger } from 'pino';
 import {
@@ -30,6 +30,19 @@ import {
 } from './merge-raw.js';
 
 export { sanitizeBqTableId, stagingTableId, dedupTableId } from './merge-raw.js';
+
+export function isBqNotFoundError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) {
+    return false;
+  }
+  const rec = err as { code?: unknown; status?: unknown };
+  return (
+    rec.code === 404 ||
+    rec.code === '404' ||
+    rec.status === 404 ||
+    rec.status === 'NOT_FOUND'
+  );
+}
 
 export const INSERT_ALL_CHUNK_SIZE = 500;
 
@@ -86,6 +99,42 @@ async function waitUntilRowCount(
   );
 }
 
+async function waitUntilTableVisible(table: Table, tableId: string): Promise<void> {
+  const deadline = Date.now() + 60_000;
+  let lastErr: unknown;
+  while (Date.now() < deadline) {
+    try {
+      await table.get();
+      return;
+    } catch (err) {
+      if (!isBqNotFoundError(err)) {
+        throw err;
+      }
+      lastErr = err;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  const detail = lastErr instanceof Error ? lastErr.message : String(lastErr ?? 'not found');
+  throw new Error(`staging table ${tableId} not visible after CREATE TABLE: ${detail}`);
+}
+
+async function insertAllWithNotFoundRetry(table: Table, chunk: object[]): Promise<void> {
+  const deadline = Date.now() + 60_000;
+  let delayMs = 250;
+  for (;;) {
+    try {
+      await table.insert(chunk);
+      return;
+    } catch (err) {
+      if (!isBqNotFoundError(err) || Date.now() >= deadline) {
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      delayMs = Math.min(delayMs * 2, 4_000);
+    }
+  }
+}
+
 async function insertAllChunked(
   bq: BigQuery,
   config: BqConfig,
@@ -96,6 +145,7 @@ async function insertAllChunked(
     return;
   }
   const table = bq.dataset(config.dataset).table(tableId);
+  await waitUntilTableVisible(table, tableId);
   for (let i = 0; i < rows.length; i += INSERT_ALL_CHUNK_SIZE) {
     const chunk = rows.slice(i, i + INSERT_ALL_CHUNK_SIZE).map((row) => ({
       ...row,
@@ -103,7 +153,7 @@ async function insertAllChunked(
       ingested_at: new Date(row.ingested_at),
       updated_at: new Date(row.updated_at),
     }));
-    await table.insert(chunk);
+    await insertAllWithNotFoundRetry(table, chunk);
   }
   // Streaming buffer is not immediately SELECT-visible.
   await waitUntilRowCount(bq, config, tableId, rows.length);
@@ -228,8 +278,9 @@ export async function executeLoadAndMerge(opts: ExecuteLoadOptions): Promise<Loa
     await runQuery(bq, opts.config, buildDedupSql(opts.config, opts.crawlBatchId));
     const preview = await runQuery(bq, opts.config, buildMergePreviewSql(opts.config, opts.crawlBatchId));
     const stats = aggregateMergePreview(preview);
-    await runQuery(bq, opts.config, buildMergeSql(opts.config, opts.crawlBatchId));
+    // Before MERGE: a later failed DELETE cannot be retried once hashes already match.
     await invalidateEmbeddings(bq, opts.config, stats.updatedReviewIds);
+    await runQuery(bq, opts.config, buildMergeSql(opts.config, opts.crawlBatchId));
 
     const result: LoadMergeResult = {
       ...stats,
