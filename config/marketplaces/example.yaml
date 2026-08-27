@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Fake template only. Do not commit real shop endpoints, cookies, or tokens.
+id: example
+reviews_url: https://example.invalid/reviews

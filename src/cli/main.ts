@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: GPL-3.0-only
 import { Command, Option } from 'commander';
+import { crawlAction } from './commands/crawl.js';
 
 function notImplemented(commandName: string): () => never {
   return () => {
@@ -46,7 +47,11 @@ export function buildProgram(): Command {
     program
       .command('crawl')
       .description('Replay fixture reviews to NDJSON (does not write BigQuery pipeline_runs)')
-      .option('--adapter <id>', 'Marketplace adapter: fixture | json_api', 'fixture')
+      .addOption(
+        new Option('--adapter <id>', 'Marketplace adapter: fixture | json_api')
+          .choices(['fixture', 'json_api'])
+          .default('fixture'),
+      )
       .option('--input <jsonl>', 'Fixture JSONL path (required for fixture)')
       .option('--out-dir <dir>', 'NDJSON output directory (default ./data/batches/<crawl_batch_id>)')
       .option('--marketplace <id>', 'json_api marketplace id (Phase 1 is still zero-HTTP)')
@@ -57,7 +62,7 @@ export function buildProgram(): Command {
       .option('--dry-run', 'Print counts and 3 sample rows; no files, no GCP', false)
       .option('--i-accept-tos', 'Required for json_api (still no HTTP in v1)', false)
       .option('--max-reviews <n>', 'Maximum reviews to emit')
-      .action(notImplemented('crawl')),
+      .action(crawlAction),
   );
 
   addRunFlags(

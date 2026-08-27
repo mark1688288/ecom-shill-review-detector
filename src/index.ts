@@ -28,3 +28,5 @@ export {
   makeReviewId,
 } from './crawler/hash.js';
 export type { MakeReviewIdInput } from './crawler/hash.js';
+export type { NormalizedReview, MarketplaceId } from './crawler/adapter.js';
+export { FixtureReviewRaw } from './crawler/types.js';
