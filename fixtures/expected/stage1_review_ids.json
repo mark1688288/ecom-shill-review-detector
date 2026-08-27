@@ -1,0 +1,49 @@
+{
+  "golden_files": [
+    "cantonese-mix.jsonl",
+    "genuine-long.jsonl",
+    "logistics-only.jsonl",
+    "non-five-star.jsonl",
+    "overlap-logistics.jsonl",
+    "shill-like-v0.jsonl",
+    "short-five-star.jsonl"
+  ],
+  "pass_native_review_ids": [
+    "n001",
+    "n005",
+    "n006",
+    "n_gen_01",
+    "n_gen_02",
+    "n_gen_03",
+    "n_gen_04",
+    "n_gen_05",
+    "n_ov_03",
+    "n_ov_04",
+    "n_shill_01",
+    "n_shill_02",
+    "n_shill_03",
+    "n_shill_04",
+    "n_shill_05",
+    "n_shill_06",
+    "n_shill_07"
+  ],
+  "must_exclude_native_review_ids": [
+    "n002",
+    "n003",
+    "n004",
+    "n007",
+    "n_log_01",
+    "n_log_02",
+    "n_log_03",
+    "n_log_04",
+    "n_low_01",
+    "n_low_02",
+    "n_low_03",
+    "n_low_04",
+    "n_ov_01",
+    "n_ov_02",
+    "n_short_01",
+    "n_short_02",
+    "n_short_03"
+  ]
+}
