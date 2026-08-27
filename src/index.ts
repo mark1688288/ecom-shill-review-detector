@@ -30,3 +30,17 @@ export {
 export type { MakeReviewIdInput } from './crawler/hash.js';
 export type { NormalizedReview, MarketplaceId } from './crawler/adapter.js';
 export { FixtureReviewRaw } from './crawler/types.js';
+export {
+  compileLogisticsPattern,
+  charLengthBqCompatible,
+  strippedCharLength,
+  V0_LOGISTICS_PHRASES,
+} from './shared/layer1-regex.js';
+export type { LogisticsPhrase } from './shared/layer1-regex.js';
+export { classifyLayer1 } from './shared/layer1-predicates.js';
+export type {
+  ClassifyLayer1Input,
+  Layer1Classification,
+  Layer1ExclusionReason,
+} from './shared/layer1-predicates.js';
+
