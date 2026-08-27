@@ -159,5 +159,7 @@ describe('DDL and bq-apply.sh', () => {
     expect(script.indexOf('01_pipeline_runs.sql')).toBeLessThan(script.indexOf('02_raw_reviews.sql'));
     expect(script).toContain('--location="${GCP_LOCATION}"');
     expect(script).toContain('BQ_DATASET');
+    expect(script).toContain('printf \'%s\\n\' "$sql" |');
+    expect(script).not.toMatch(/nouse_cache \\\n\s+"\$\{sql\}"/);
   });
 });

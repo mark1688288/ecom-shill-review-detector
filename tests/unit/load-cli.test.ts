@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { runCrawl } from '../../src/cli/commands/crawl.js';
 import { runLoad } from '../../src/cli/commands/load.js';
 import { buildProgram } from '../../src/cli/main.js';
+import { isBqNotFoundError } from '../../src/crawler/persist/bq-load.js';
 import {
   parseRawReviewNdjsonLine,
   type RawReviewNdjson,
@@ -84,6 +85,9 @@ describe('load CLI flags', () => {
     expect(help).toContain('--load-mode');
     expect(help).toContain('--gcs-uri');
     expect(help).toContain('--dataset');
+    expect(help).toContain('GCS_STAGING_BUCKET');
+    expect(help).toContain('{GCP_PROJECT}-ecom-shill-staging');
+    expect(help).not.toMatch(/dry-run/i);
   });
 });
 
@@ -225,6 +229,28 @@ describe('resolvePipelineRunId allowCreate for load', () => {
     expect(result.pipeline_run_id).toBe(RUN);
     expect(result.createdRun).toBe(false);
     expect(result.fromLatest).toBe(false);
+  });
+});
+
+describe('isBqNotFoundError', () => {
+  it('matches numeric and string 404 codes', () => {
+    expect(isBqNotFoundError({ code: 404 })).toBe(true);
+    expect(isBqNotFoundError({ code: '404' })).toBe(true);
+    expect(isBqNotFoundError({ status: 'NOT_FOUND' })).toBe(true);
+    expect(isBqNotFoundError({ code: 403 })).toBe(false);
+    expect(isBqNotFoundError(new Error('nope'))).toBe(false);
+  });
+});
+
+describe('embeddings invalidation order', () => {
+  it('deletes embeddings before MERGE in executeLoadAndMerge', async () => {
+    const src = await readFile(path.join(process.cwd(), 'src/crawler/persist/bq-load.ts'), 'utf8');
+    const fn = src.slice(src.indexOf('export async function executeLoadAndMerge'));
+    const invalidate = fn.indexOf('invalidateEmbeddings');
+    const merge = fn.indexOf('buildMergeSql');
+    expect(invalidate).toBeGreaterThan(-1);
+    expect(merge).toBeGreaterThan(-1);
+    expect(invalidate).toBeLessThan(merge);
   });
 });
 

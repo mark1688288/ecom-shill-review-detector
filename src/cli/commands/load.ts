@@ -281,6 +281,8 @@ export async function runLoad(opts: RunLoadOptions): Promise<LoadCommandResult> 
 
   let markedRunning = false;
   let merge: LoadMergeResult | undefined;
+  let terminal: 'succeeded' | 'failed' = 'failed';
+  let loadError: unknown;
   try {
     await upsertPipelineRun({
       bq,
@@ -307,7 +309,6 @@ export async function runLoad(opts: RunLoadOptions): Promise<LoadCommandResult> 
       logger,
     });
 
-    const finishedAt = new Date();
     await upsertPipelineRun({
       bq,
       config,
@@ -316,21 +317,29 @@ export async function runLoad(opts: RunLoadOptions): Promise<LoadCommandResult> 
       crawlBatchId: crawl_batch_id,
       status: 'succeeded',
       startedAt,
-      finishedAt,
+      finishedAt: new Date(),
       rowsIn: rows.length,
       rowsOut: merge.n_inserted + merge.n_updated,
       errorMessage: null,
     });
+    terminal = 'succeeded';
 
-    writeLatestRun(
-      {
-        pipeline_run_id: resolved.pipeline_run_id,
-        crawl_batch_id,
-        phase: 'load',
-        started_at: asIso(startedAt),
-      },
-      latestPath,
-    );
+    try {
+      writeLatestRun(
+        {
+          pipeline_run_id: resolved.pipeline_run_id,
+          crawl_batch_id,
+          phase: 'load',
+          started_at: asIso(startedAt),
+        },
+        latestPath,
+      );
+    } catch (latestErr) {
+      logger.warn({
+        event: 'latest_run_write_failed',
+        err: errorMessage(latestErr),
+      });
+    }
     printPipelineRunId(resolved.pipeline_run_id, stdout);
     logger.info({
       event: 'load_merged',
@@ -361,7 +370,10 @@ export async function runLoad(opts: RunLoadOptions): Promise<LoadCommandResult> 
     }
     return result;
   } catch (err) {
-    if (markedRunning) {
+    loadError = err;
+    throw err;
+  } finally {
+    if (markedRunning && terminal === 'failed') {
       try {
         await upsertPipelineRun({
           bq,
@@ -373,7 +385,7 @@ export async function runLoad(opts: RunLoadOptions): Promise<LoadCommandResult> 
           startedAt,
           finishedAt: new Date(),
           rowsIn: rows.length,
-          errorMessage: errorMessage(err),
+          errorMessage: errorMessage(loadError ?? 'load failed'),
         });
       } catch (statusErr) {
         logger.warn({
@@ -382,7 +394,6 @@ export async function runLoad(opts: RunLoadOptions): Promise<LoadCommandResult> 
         });
       }
     }
-    throw err;
   }
 }
 
