@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Template only. Copy to config/gcp.yaml (gitignored) or set env vars.
+# Dataset, connection, and Vertex must share GCP_LOCATION (asia-east1).
+# No API keys, cookies, or real marketplace endpoints.
+
+project: your-gcp-project
+location: asia-east1
+dataset: ecom_shill
+connection_id: ecom_shill_vertex
+# Convention: gs://{GCP_PROJECT}-ecom-shill-staging
+staging_bucket: gs://your-gcp-project-ecom-shill-staging
