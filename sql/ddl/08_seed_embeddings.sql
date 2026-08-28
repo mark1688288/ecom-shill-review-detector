@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS `ecom_shill.seed_embeddings` (
   seed_version STRING NOT NULL,
   seed_id STRING NOT NULL,
   category STRING NOT NULL,
-  embedding ARRAY<FLOAT64> NOT NULL,
+  -- BQ rejects NOT NULL on ARRAY (NULL arrays are stored as []).
+  embedding ARRAY<FLOAT64>,
   embedding_model STRING NOT NULL,
   embedded_at TIMESTAMP NOT NULL
 );

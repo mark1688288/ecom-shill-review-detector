@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import type { BigQuery } from '@google-cloud/bigquery';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCrawl } from '../../src/cli/commands/crawl.js';
 import { runLoad } from '../../src/cli/commands/load.js';
@@ -229,6 +230,68 @@ describe('resolvePipelineRunId allowCreate for load', () => {
     expect(result.pipeline_run_id).toBe(RUN);
     expect(result.createdRun).toBe(false);
     expect(result.fromLatest).toBe(false);
+  });
+});
+
+describe('runLoad pipeline_runs params', () => {
+  it('does not pass JS null as BigQuery query params when marking running', async () => {
+    const dir = await tmp();
+    const ndjson = await writeNdjson(dir, [sampleRow()]);
+    const calls: { query: string; params?: Record<string, unknown> }[] = [];
+    let exists = false;
+    const bq = {
+      query: async (options: { query: string; params?: Record<string, unknown> }) => {
+        if (options.params !== undefined) {
+          for (const [key, value] of Object.entries(options.params)) {
+            if (value === null) {
+              throw new Error(`null query param ${key} is not encodable without types`);
+            }
+          }
+        }
+        calls.push(options);
+        const sql = options.query;
+        if (sql.includes('SELECT pipeline_run_id FROM') && sql.includes('LIMIT 1')) {
+          return [exists ? [{ pipeline_run_id: RUN }] : []];
+        }
+        if (sql.includes('INSERT INTO') && sql.includes('pipeline_runs')) {
+          exists = true;
+          return [[]];
+        }
+        if (sql.includes('UPDATE') && sql.includes('pipeline_runs')) {
+          return [[]];
+        }
+        throw new Error('simulated merge failure');
+      },
+    } as unknown as BigQuery;
+
+    await expect(
+      runLoad({
+        ndjson,
+        pipelineRunId: RUN,
+        cwd: dir,
+        latestPath: path.join(dir, 'data', 'runs', 'latest'),
+        env: gcpEnv(),
+        stdout: { write: () => undefined },
+        bigquery: bq,
+      }),
+    ).rejects.toThrow(/simulated merge failure/);
+
+    const insert = calls.find((c) => c.query.includes('INSERT INTO') && c.query.includes('pipeline_runs'));
+    expect(insert).toBeDefined();
+    expect(insert?.query).toContain('CAST(NULL AS TIMESTAMP)');
+    expect(insert?.query).toContain('CAST(NULL AS INT64)');
+    expect(insert?.query).toContain('CAST(NULL AS STRING)');
+    expect(insert?.params).not.toHaveProperty('finished_at');
+    expect(insert?.params).not.toHaveProperty('rows_out');
+    expect(insert?.params).not.toHaveProperty('error_message');
+    expect(insert?.params?.['rows_in']).toBe(1);
+    expect(insert?.params?.['status']).toBe('running');
+
+    const update = calls.find((c) => c.query.includes('UPDATE') && c.query.includes('pipeline_runs'));
+    expect(update).toBeDefined();
+    expect(update?.params?.['status']).toBe('failed');
+    expect(update?.params).not.toHaveProperty('rows_out');
+    expect(update?.query).toContain('CAST(NULL AS INT64)');
   });
 });
 

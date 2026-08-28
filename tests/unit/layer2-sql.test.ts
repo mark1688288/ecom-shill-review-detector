@@ -104,13 +104,17 @@ describe('Layer 2 DDL', () => {
     expect(phrases).toContain('seed_version STRING NOT NULL');
 
     expect(reviews).toContain('CREATE TABLE IF NOT EXISTS `ecom_shill.review_embeddings`');
-    expect(reviews).toContain('embedding ARRAY<FLOAT64> NOT NULL');
+    // BQ: "NOT NULL cannot be applied to ARRAY field" — empty array is the null.
+    expect(reviews).toMatch(/embedding ARRAY<FLOAT64>/);
+    expect(reviews).not.toMatch(/embedding ARRAY<FLOAT64>\s+NOT NULL/);
     expect(reviews).toContain("status STRING NOT NULL");
     expect(reviews).toContain('PARTITION BY DATE(embedded_at)');
     expect(reviews).toContain('CLUSTER BY pipeline_run_id, store_id');
 
     expect(seeds).toContain('CREATE TABLE IF NOT EXISTS `ecom_shill.seed_embeddings`');
     expect(seeds).toContain('seed_version STRING NOT NULL');
+    expect(seeds).toMatch(/embedding ARRAY<FLOAT64>/);
+    expect(seeds).not.toMatch(/embedding ARRAY<FLOAT64>\s+NOT NULL/);
     expect(seeds).not.toMatch(/PARTITION BY/);
 
     expect(stage2).toContain(
