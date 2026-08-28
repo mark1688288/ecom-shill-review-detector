@@ -8,6 +8,7 @@ BQ_DATASET="${BQ_DATASET:-ecom_shill}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DDL_DIR="${ROOT}/sql/ddl"
+SEED_DIR="${ROOT}/sql/seeds"
 
 apply_sql() {
   local file="$1"
@@ -25,5 +26,12 @@ apply_sql "${DDL_DIR}/00_dataset.sql"
 apply_sql "${DDL_DIR}/01_pipeline_runs.sql"
 apply_sql "${DDL_DIR}/02_raw_reviews.sql"
 apply_sql "${DDL_DIR}/03_logistics_canned_phrases.sql"
+apply_sql "${DDL_DIR}/04_pr_seed_phrases.sql"
 apply_sql "${DDL_DIR}/05_stage1_filtered.sql"
 apply_sql "${DDL_DIR}/05b_layer1_exclusion_audit.sql"
+# Remote-model DDL (Vertex connection) is a later PR; Layer 2 tables do not need it.
+apply_sql "${DDL_DIR}/07_review_embeddings.sql"
+apply_sql "${DDL_DIR}/08_seed_embeddings.sql"
+apply_sql "${DDL_DIR}/09_stage2_suspicious.sql"
+
+apply_sql "${SEED_DIR}/pr_seed_phrases_v0.sql"
