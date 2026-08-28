@@ -1,0 +1,16 @@
+{
+  "shill_score": 82,
+  "template_detected": true,
+  "template_id": "seed_personal_trial",
+  "template_name": "personal_trial",
+  "linguistic_style": "canned_pr",
+  "detected_signals": [
+    {
+      "code": "TEMPLATE_OPENER",
+      "span": "親身試用",
+      "start_char": 4,
+      "end_char": 8
+    }
+  ],
+  "rationale_short": "模版開場而無使用細節。"
+}

@@ -33,5 +33,7 @@ apply_sql "${DDL_DIR}/05b_layer1_exclusion_audit.sql"
 apply_sql "${DDL_DIR}/07_review_embeddings.sql"
 apply_sql "${DDL_DIR}/08_seed_embeddings.sql"
 apply_sql "${DDL_DIR}/09_stage2_suspicious.sql"
+apply_sql "${DDL_DIR}/10_gemini_review_assessments.sql"
+apply_sql "${DDL_DIR}/11_gemini_assessment_errors.sql"
 
 apply_sql "${SEED_DIR}/pr_seed_phrases_v0.sql"

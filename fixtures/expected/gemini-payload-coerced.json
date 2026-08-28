@@ -1,0 +1,24 @@
+{
+  "shill_score": 87.0,
+  "template_detected": false,
+  "template_id": "seed_personal_trial",
+  "template_name": "personal_trial",
+  "linguistic_style": "genuine_oral",
+  "detected_signals": [
+    {
+      "code": "NOT_A_REAL_CODE",
+      "span": "親身試用"
+    },
+    {
+      "code": "STOCK_PRAISE",
+      "span": "this span is not in the comment"
+    },
+    {
+      "code": "GENUINE_DETAIL",
+      "span": "用咗兩個禮拜",
+      "start_char": 99,
+      "end_char": 100
+    }
+  ],
+  "rationale_short": "有具體使用時間。"
+}
