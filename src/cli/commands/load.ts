@@ -21,6 +21,7 @@ import {
   getBigQuery,
   quotedTable,
   runQuery,
+  sqlParamOrNull,
   type BqConfig,
 } from '../../shared/bq.js';
 import { loadEnv, type AppConfig, type GcpEnv } from '../../shared/env.js';
@@ -126,6 +127,7 @@ async function upsertPipelineRun(input: UpsertPipelineRunInput): Promise<void> {
     { pipeline_run_id: input.pipelineRunId },
   );
   const heartbeatAt = input.finishedAt ?? input.startedAt;
+  const finishedAtIso = input.finishedAt === undefined ? undefined : input.finishedAt.toISOString();
   const params: Record<string, unknown> = {
     pipeline_run_id: input.pipelineRunId,
     phase: 'load',
@@ -137,11 +139,11 @@ async function upsertPipelineRun(input: UpsertPipelineRunInput): Promise<void> {
     cosine_distance_threshold: input.appConfig.layer2.cosine_distance_threshold,
     heartbeat_at: heartbeatAt.toISOString(),
     started_at: input.startedAt.toISOString(),
-    finished_at: input.finishedAt === undefined ? null : input.finishedAt.toISOString(),
-    rows_in: input.rowsIn === undefined ? null : input.rowsIn,
-    rows_out: input.rowsOut === undefined ? null : input.rowsOut,
-    error_message: input.errorMessage === undefined ? null : input.errorMessage,
   };
+  const finishedAtSql = sqlParamOrNull(params, 'finished_at', finishedAtIso, 'TIMESTAMP');
+  const rowsInSql = sqlParamOrNull(params, 'rows_in', input.rowsIn, 'INT64');
+  const rowsOutSql = sqlParamOrNull(params, 'rows_out', input.rowsOut, 'INT64');
+  const errorSql = sqlParamOrNull(params, 'error_message', input.errorMessage, 'STRING');
   if (existing.length === 0) {
     await runQuery(
       input.bq,
@@ -172,10 +174,10 @@ async function upsertPipelineRun(input: UpsertPipelineRunInput): Promise<void> {
   @cosine_distance_threshold,
   @heartbeat_at,
   @started_at,
-  @finished_at,
-  @rows_in,
-  @rows_out,
-  @error_message
+  ${finishedAtSql},
+  ${rowsInSql},
+  ${rowsOutSql},
+  ${errorSql}
 )`,
       params,
     );
@@ -195,10 +197,10 @@ SET
   cosine_distance_threshold = @cosine_distance_threshold,
   heartbeat_at = @heartbeat_at,
   started_at = @started_at,
-  finished_at = @finished_at,
-  rows_in = @rows_in,
-  rows_out = @rows_out,
-  error_message = @error_message
+  finished_at = ${finishedAtSql},
+  rows_in = ${rowsInSql},
+  rows_out = ${rowsOutSql},
+  error_message = ${errorSql}
 WHERE pipeline_run_id = @pipeline_run_id`,
     params,
   );

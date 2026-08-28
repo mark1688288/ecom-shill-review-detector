@@ -56,6 +56,25 @@ export function getBigQuery(config: BqConfig): BigQuery {
   });
 }
 
+export type BqSqlType = 'STRING' | 'INT64' | 'TIMESTAMP' | 'BOOL' | 'FLOAT64';
+
+/**
+ * The BigQuery client cannot encode JS `null` without `types`.
+ * Omit the param and splice a typed SQL NULL instead.
+ */
+export function sqlParamOrNull(
+  params: Record<string, unknown>,
+  name: string,
+  value: unknown,
+  sqlType: BqSqlType,
+): string {
+  if (value === undefined || value === null) {
+    return `CAST(NULL AS ${sqlType})`;
+  }
+  params[name] = value;
+  return `@${name}`;
+}
+
 export async function runQuery(
   bq: BigQuery,
   config: BqConfig,

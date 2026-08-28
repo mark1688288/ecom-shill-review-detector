@@ -11,6 +11,7 @@ import {
   quotedInformationSchemaTables,
   quotedTable,
   runQuery,
+  sqlParamOrNull,
   type BqConfig,
 } from '../../shared/bq.js';
 import { loadEnv, type AppConfig, type GcpEnv } from '../../shared/env.js';
@@ -63,8 +64,6 @@ export type Layer1CommandResult = {
 
 type PipelineRunStatus = 'running' | 'succeeded' | 'failed';
 
-type BqSqlType = 'STRING' | 'INT64' | 'TIMESTAMP';
-
 type UpsertPipelineRunInput = {
   bq: BigQuery;
   config: BqConfig;
@@ -77,20 +76,6 @@ type UpsertPipelineRunInput = {
   rowsOut?: number;
   errorMessage?: string | null;
 };
-
-/** The BQ client cannot encode JS `null` without `types`; emit a typed SQL NULL instead. */
-function sqlParamOrNull(
-  params: Record<string, unknown>,
-  name: string,
-  value: unknown,
-  sqlType: BqSqlType,
-): string {
-  if (value === undefined || value === null) {
-    return `CAST(NULL AS ${sqlType})`;
-  }
-  params[name] = value;
-  return `@${name}`;
-}
 
 function asIso(value: Date): string {
   return value.toISOString();

@@ -28,3 +28,7 @@ pnpm-debug.log*
 # OS / editor
 .DS_Store
 .idea/
+
+# local scratch notes (not the design spec)
+docs/gcp-commands.md
+docs/chat-session-01.md
