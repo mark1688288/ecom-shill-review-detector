@@ -34,9 +34,13 @@ pnpm test
 pnpm cli -- --help
 ```
 
-子命令已登記；Phase 0 尚未實作業務邏輯，執行 `crawl` / `load` / … / `seeds` 會 **exit 2** 並印 `not implemented`。
+Help 必須寫成 `pnpm cli -- --help`（pnpm 把第一個 `--` 當 script 參數分隔）。`layer2` / `audit` / `analyze` / `report` / `seeds` 仍 **exit 2**（`not implemented`）。
 
-Help 必須寫成 `pnpm cli -- --help`（pnpm 把第一個 `--` 當 script 參數分隔）。
+## Layer 2 種子句（`v0_hypothesis`）
+
+[`sql/seeds/pr_seed_phrases_v0.sql`](sql/seeds/pr_seed_phrases_v0.sql) 的 7 句是 **hypothesis, replaceable**，不是已驗證的「官方 7 大經典」。之後以新 `seed_version` 或 `ecom-shill seeds upsert`（Phase 5）替換。
+
+Layer 2 SQL 在 [`sql/layer2/`](sql/layer2/)（embed seeds / embed reviews / cosine distance ≤ config 門檻）。CI **不**執行 `ML.GENERATE_EMBEDDING`（需 Vertex remote model）。
 
 ## GCP（可選）
 

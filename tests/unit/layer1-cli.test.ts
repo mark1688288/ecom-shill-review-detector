@@ -356,15 +356,19 @@ describe('layer1 SQL and scripts', () => {
     expect(debug).toContain('FROM _stripped');
   });
 
-  it('bq-apply.sh appends 03, 05, 05b after 02', async () => {
+  it('bq-apply.sh appends 03, 04, 05, 05b after 02', async () => {
     const script = await readFile(path.join(root, 'scripts/bq-apply.sh'), 'utf8');
     expect(script).toContain('00_dataset.sql');
     expect(script).toContain('02_raw_reviews.sql');
     expect(script).toContain('03_logistics_canned_phrases.sql');
+    expect(script).toContain('04_pr_seed_phrases.sql');
     expect(script).toContain('05_stage1_filtered.sql');
     expect(script).toContain('05b_layer1_exclusion_audit.sql');
     expect(script.indexOf('02_raw_reviews.sql')).toBeLessThan(script.indexOf('03_logistics_canned_phrases.sql'));
     expect(script.indexOf('03_logistics_canned_phrases.sql')).toBeLessThan(
+      script.indexOf('04_pr_seed_phrases.sql'),
+    );
+    expect(script.indexOf('04_pr_seed_phrases.sql')).toBeLessThan(
       script.indexOf('05_stage1_filtered.sql'),
     );
     expect(script.indexOf('05_stage1_filtered.sql')).toBeLessThan(
