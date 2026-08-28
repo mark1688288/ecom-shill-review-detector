@@ -3,6 +3,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, Option } from 'commander';
+import { auditAction } from './commands/audit.js';
 import { crawlAction } from './commands/crawl.js';
 import { layer1Action } from './commands/layer1.js';
 import { loadAction } from './commands/load.js';
@@ -105,7 +106,7 @@ export function buildProgram(): Command {
       .option('--limit <n>', 'Max new Gemini calls (non-prod default 100)')
       .option('--skip-existing', 'Copy-forward matching prior assessments (default true)')
       .option('--force-rescore', 'Ignore prior scores and rescore this run\'s stage2 (still --limit)', false),
-  ).action(notImplemented('audit'));
+  ).action(auditAction);
 
   addRunFlags(
     program.command('analyze').description('Compute store stats, bursts, and cross-store collisions'),

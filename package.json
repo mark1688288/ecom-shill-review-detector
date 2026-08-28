@@ -22,7 +22,9 @@
   "dependencies": {
     "@google-cloud/bigquery": "^9.0.3",
     "@google-cloud/storage": "^8.0.1",
+    "@google/genai": "^2.19.0",
     "commander": "^14.0.0",
+    "p-limit": "^7.3.1",
     "pino": "^9.7.0",
     "yaml": "^2.8.0",
     "zod": "^4"
