@@ -34,7 +34,9 @@ pnpm test
 pnpm cli -- --help
 ```
 
-Help 必須寫成 `pnpm cli -- --help`（pnpm 把第一個 `--` 當 script 參數分隔）。`layer2` / `audit` / `analyze` / `report` / `seeds` 仍 **exit 2**（`not implemented`）。
+Help 必須寫成 `pnpm cli -- --help`（pnpm 把第一個 `--` 當 script 參數分隔）。`layer2` / `analyze` / `report` / `seeds` 仍 **exit 2**（`not implemented`）。
+
+`audit` 會對 stage2 打 Gemini Flash（JSON Schema、`p-limit` 8）。CI 用 mock 計 call-count；live Vertex 唔喺 merge gate。`layer2` / `audit` **禁止新建** `pipeline_runs`（必須 `--pipeline-run-id` 或 `--continue-latest`）。
 
 ## Layer 2 種子句（`v0_hypothesis`）
 
