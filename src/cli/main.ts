@@ -6,6 +6,7 @@ import { Command, Option } from 'commander';
 import { auditAction } from './commands/audit.js';
 import { crawlAction } from './commands/crawl.js';
 import { layer1Action } from './commands/layer1.js';
+import { layer2Action } from './commands/layer2.js';
 import { loadAction } from './commands/load.js';
 
 function notImplemented(commandName: string): () => never {
@@ -96,7 +97,7 @@ export function buildProgram(): Command {
       .command('layer2')
       .description('Embed stage1 reviews and filter by cosine distance to PR seed phrases')
       .option('--seed-version <id>', 'Seed version (default: active version or config seed_version)'),
-  ).action(notImplemented('layer2'));
+  ).action(layer2Action);
 
   addRunFlags(
     program

@@ -127,8 +127,20 @@ describe('Layer 2 DDL', () => {
     expect(stage2).toContain("phase = 'layer2'");
   });
 
-  it('does not ship a Vertex remote-model DDL in this PR', () => {
-    expect(existsSync(path.join(ROOT, 'sql/ddl/06_remote_models.sql'))).toBe(false);
+  it('ships a Vertex remote-model DDL with placeholders and a 404 stop', () => {
+    const remote = readSql('sql/ddl/06_remote_models.sql');
+    expect(existsSync(path.join(ROOT, 'sql/ddl/06_remote_models.sql'))).toBe(true);
+    expect(remote).toMatch(/CREATE OR REPLACE MODEL/);
+    expect(remote).toContain('__DATASET__.text_embedding');
+    expect(remote).toContain(
+      'REMOTE WITH CONNECTION `__GCP_PROJECT__.__GCP_LOCATION__.__BQ_CONNECTION_ID__`',
+    );
+    expect(remote).toContain("ENDPOINT = '__EMBEDDING_MODEL__'");
+    expect(remote).toMatch(/Do not silently switch to text-embedding-004/);
+    expect(remote).toMatch(/Do not create a BigQuery remote model for Gemini/);
+    expect(remote).not.toMatch(/ENDPOINT = 'gemini/i);
+    expect(remote).not.toMatch(/ML\.GENERATE_TEXT_EMBEDDING/i);
+    expect(remote).not.toMatch(/AI\.GENERATE_EMBEDDING/i);
   });
 
   it('does not commit a Vertex-dependent stage2 golden', () => {
@@ -197,13 +209,17 @@ describe('Layer 2 SQL jobs (files only; CI does not run ML)', () => {
 });
 
 describe('bq-apply.sh Layer 2', () => {
-  it('applies 04, 07–09 and v0 seeds after Layer 1, skipping remote models', () => {
+  it('applies 04, 07–09, v0 seeds, then remote-model 06 with placeholders', () => {
     const script = readSql('scripts/bq-apply.sh');
     expect(script).toContain('04_pr_seed_phrases.sql');
     expect(script).toContain('07_review_embeddings.sql');
     expect(script).toContain('08_seed_embeddings.sql');
     expect(script).toContain('09_stage2_suspicious.sql');
     expect(script).toContain('pr_seed_phrases_v0.sql');
+    expect(script).toContain('06_remote_models.sql');
+    expect(script).toContain('apply_remote_model');
+    expect(script).toContain('__BQ_CONNECTION_ID__');
+    expect(script).toContain('__EMBEDDING_MODEL__');
     expect(script).not.toMatch(/apply_sql "\$\{DDL_DIR\}\/06_/);
     expect(script.indexOf('05b_layer1_exclusion_audit.sql')).toBeLessThan(
       script.indexOf('07_review_embeddings.sql'),
@@ -216,6 +232,9 @@ describe('bq-apply.sh Layer 2', () => {
     );
     expect(script.indexOf('09_stage2_suspicious.sql')).toBeLessThan(
       script.indexOf('pr_seed_phrases_v0.sql'),
+    );
+    expect(script.indexOf('pr_seed_phrases_v0.sql')).toBeLessThan(
+      script.indexOf('06_remote_models.sql'),
     );
   });
 });
