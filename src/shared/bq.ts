@@ -48,6 +48,10 @@ export function quotedInformationSchemaTables(config: BqConfig): string {
   return `\`${config.project}.${config.dataset}.INFORMATION_SCHEMA.TABLES\``;
 }
 
+export function quotedInformationSchemaModels(config: BqConfig): string {
+  return `\`${config.project}.${config.dataset}.INFORMATION_SCHEMA.MODELS\``;
+}
+
 export function getBigQuery(config: BqConfig): BigQuery {
   assertBqConfig(config);
   return new BigQuery({
