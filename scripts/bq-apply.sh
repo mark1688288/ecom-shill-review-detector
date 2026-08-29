@@ -53,6 +53,11 @@ apply_sql "${DDL_DIR}/08_seed_embeddings.sql"
 apply_sql "${DDL_DIR}/09_stage2_suspicious.sql"
 apply_sql "${DDL_DIR}/10_gemini_review_assessments.sql"
 apply_sql "${DDL_DIR}/11_gemini_assessment_errors.sql"
+apply_sql "${DDL_DIR}/12_store_shill_stats.sql"
+apply_sql "${DDL_DIR}/13_burst_events.sql"
+apply_sql "${DDL_DIR}/14_cross_store_template_collisions.sql"
+apply_sql "${DDL_DIR}/15_shill_network_edges.sql"
+apply_sql "${DDL_DIR}/16_funnel_stats.sql"
 
 apply_sql "${SEED_DIR}/pr_seed_phrases_v0.sql"
 
