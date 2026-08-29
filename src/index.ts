@@ -43,4 +43,21 @@ export type {
   Layer1Classification,
   Layer1ExclusionReason,
 } from './shared/layer1-predicates.js';
+export {
+  burstZScore,
+  isDayBurst,
+  isHourBurst,
+} from './analysis/burst.js';
+export {
+  SHILL_SCORE_THRESHOLD,
+  edgesFromCollisions,
+  templateCollisionPairs,
+} from './analysis/collisions.js';
+export {
+  DISCLAIMER_EN,
+  DISCLAIMER_ZH,
+  renderDot,
+  renderJson,
+  renderMarkdown,
+} from './analysis/report.js';
 
