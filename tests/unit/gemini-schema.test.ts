@@ -210,6 +210,8 @@ describe('checkpoint SQL', () => {
     }
     expect(copy).toContain("prev.model_id = @gemini_model");
     expect(copy).toContain("prev.prompt_version = @prompt_version");
+    expect(copy.indexOf('WHERE s.pipeline_run_id')).toBeGreaterThan(copy.indexOf('JOIN'));
+    expect(copy.indexOf('QUALIFY')).toBeGreaterThan(copy.indexOf('WHERE s.pipeline_run_id'));
     expect(pending).toContain('a.review_id IS NULL');
     expect(force).not.toContain('a.review_id IS NULL');
     expect(merge).toContain('WHEN MATCHED THEN UPDATE SET');

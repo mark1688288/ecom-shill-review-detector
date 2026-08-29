@@ -92,6 +92,21 @@ describe('loadEnv', () => {
     expect(loaded.gcp?.GCP_LOCATION).toBe('asia-east1');
   });
 
+  it('lets GEMINI_LOCATION differ from GCP_LOCATION', () => {
+    const loaded = loadEnv({
+      command: 'audit',
+      env: {
+        REVIEWER_ID_SALT: VALID_SALT,
+        GCP_PROJECT: 'demo-project',
+        GCP_LOCATION: 'asia-east1',
+        BQ_DATASET: 'ecom_shill',
+        GEMINI_LOCATION: 'global',
+      },
+    });
+    expect(loaded.gcp?.GCP_LOCATION).toBe('asia-east1');
+    expect(loaded.gcp?.GEMINI_LOCATION).toBe('global');
+  });
+
   it('lets EMBEDDING_MODEL override yaml (004 is opt-in)', () => {
     const loaded = loadEnv({
       command: 'crawl',
