@@ -136,7 +136,7 @@ export async function runAudit(opts: RunAuditOptions): Promise<AuditCommandResul
     gemini ??= createGeminiClient({
       model: loaded.config.gemini.model,
       project: gcp.GCP_PROJECT,
-      location: gcp.GCP_LOCATION,
+      location: gcp.GEMINI_LOCATION ?? gcp.GCP_LOCATION,
       thinkingBudget: loaded.config.gemini.thinking_budget,
       thinkingLevel: loaded.config.gemini.thinking_level,
       temperature: loaded.config.gemini.temperature,
