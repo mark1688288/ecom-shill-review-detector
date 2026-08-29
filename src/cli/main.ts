@@ -3,11 +3,13 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, Option } from 'commander';
+import { analyzeAction } from './commands/analyze.js';
 import { auditAction } from './commands/audit.js';
 import { crawlAction } from './commands/crawl.js';
 import { layer1Action } from './commands/layer1.js';
 import { layer2Action } from './commands/layer2.js';
 import { loadAction } from './commands/load.js';
+import { reportAction } from './commands/report.js';
 
 function notImplemented(commandName: string): () => never {
   return () => {
@@ -111,16 +113,20 @@ export function buildProgram(): Command {
 
   addRunFlags(
     program.command('analyze').description('Compute store stats, bursts, and cross-store collisions'),
-  ).action(notImplemented('analyze'));
+  ).action(analyzeAction);
 
   addRunFlags(
     program
       .command('report')
       .description('Write markdown or JSON report (includes "statistics ≠ legal facts")')
-      .option('--format <fmt>', 'markdown | json', 'markdown')
+      .addOption(
+        new Option('--format <fmt>', 'markdown | json')
+          .choices(['markdown', 'json'])
+          .default('markdown'),
+      )
       .option('--dot', 'Also write a Graphviz .dot edge list', false)
       .option('--out <path>', 'Output path (default reports/<pipeline_run_id>.md|.json)'),
-  ).action(notImplemented('report'));
+  ).action(reportAction);
 
   program
     .command('seeds')
