@@ -34,11 +34,13 @@ pnpm test
 pnpm cli -- --help
 ```
 
-Help 必須寫成 `pnpm cli -- --help`（pnpm 把第一個 `--` 當 script 參數分隔）。`analyze` / `report` / `seeds` 仍 **exit 2**（`not implemented`）。
+Help 必須寫成 `pnpm cli -- --help`（pnpm 把第一個 `--` 當 script 參數分隔）。`seeds` 仍 **exit 2**（`not implemented`）。
 
 `layer2` 用 BigQuery remote model（ENDPOINT 來自 `EMBEDDING_MODEL`，預設 `text-multilingual-embedding-002`）embed 種子同 stage1，再以 cosine distance ≤ config 門檻寫入 stage2。`CREATE MODEL` 對 multilingual-002 在該區 404 時必須停止，禁止默默改 `text-embedding-004`。CI **不**執行 `ML.GENERATE_EMBEDDING`。
 
-`audit` 會對 stage2 打 Gemini Flash（JSON Schema、`p-limit` 8）。CI 用 mock 計 call-count；live Vertex 唔喺 merge gate。`layer2` / `audit` **禁止新建** `pipeline_runs`（必須 `--pipeline-run-id` 或 `--continue-latest`）。`asia-east1` 沒有 Gemini `generateContent`；BQ / embedding 維持 `GCP_LOCATION`，live audit 設 `GEMINI_LOCATION=global`（或 `asia-southeast1` / `asia-northeast1`）。
+`audit` 會對 stage2 打 Gemini Flash（JSON Schema、`p-limit` 8）。CI 用 mock 計 call-count；live Vertex 唔喺 merge gate。`layer2` / `audit` / `analyze` / `report` **禁止新建** `pipeline_runs`（必須 `--pipeline-run-id` 或 `--continue-latest`）。`asia-east1` 沒有 Gemini `generateContent`；BQ / embedding 維持 `GCP_LOCATION`，live audit 設 `GEMINI_LOCATION=global`（或 `asia-southeast1` / `asia-northeast1`）。
+
+`analyze` 按 `pipeline_run_id` DELETE+INSERT 單店水分、burst、跨店 template/embedding 碰撞與 edge list。`report` 讀分析表寫 markdown/JSON（頂部「統計 ≠ 法律事實」）；`--dot` 另寫 Graphviz。CI 不斷言漏斗 35%/5%。`shill_score>=75` 同 cosine 0.28 一樣是可調預設，不是 SLA。
 
 ## Layer 2 種子句（`v0_hypothesis`）
 
