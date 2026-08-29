@@ -67,6 +67,8 @@ const gcpEnvSchema = z.object({
   BQ_DATASET: z.string().min(1, 'BQ_DATASET is required'),
   GCS_STAGING_BUCKET: z.string().optional(),
   BQ_CONNECTION_ID: z.string().optional(),
+  // Gemini generateContent is not published in asia-east1; BQ/embeddings stay GCP_LOCATION.
+  GEMINI_LOCATION: z.string().optional(),
 });
 
 export type GcpEnv = z.infer<typeof gcpEnvSchema>;
@@ -169,6 +171,7 @@ export function loadEnv(opts: LoadEnvOptions): LoadedEnv {
     BQ_DATASET: env['BQ_DATASET'],
     GCS_STAGING_BUCKET: env['GCS_STAGING_BUCKET'],
     BQ_CONNECTION_ID: env['BQ_CONNECTION_ID'],
+    GEMINI_LOCATION: env['GEMINI_LOCATION'],
   });
   return { hmac, config, gcp };
 }

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Template only. Copy to config/gcp.yaml (gitignored) or set env vars.
-# Dataset, connection, and Vertex must share GCP_LOCATION (asia-east1).
+# Dataset, connection, and embedding remote model share GCP_LOCATION (asia-east1).
+# Gemini generateContent is not served in asia-east1; set GEMINI_LOCATION=global.
 # No API keys, cookies, or real marketplace endpoints.
 
 project: your-gcp-project

@@ -38,7 +38,7 @@ Help 必須寫成 `pnpm cli -- --help`（pnpm 把第一個 `--` 當 script 參�
 
 `layer2` 用 BigQuery remote model（ENDPOINT 來自 `EMBEDDING_MODEL`，預設 `text-multilingual-embedding-002`）embed 種子同 stage1，再以 cosine distance ≤ config 門檻寫入 stage2。`CREATE MODEL` 對 multilingual-002 在該區 404 時必須停止，禁止默默改 `text-embedding-004`。CI **不**執行 `ML.GENERATE_EMBEDDING`。
 
-`audit` 會對 stage2 打 Gemini Flash（JSON Schema、`p-limit` 8）。CI 用 mock 計 call-count；live Vertex 唔喺 merge gate。`layer2` / `audit` **禁止新建** `pipeline_runs`（必須 `--pipeline-run-id` 或 `--continue-latest`）。
+`audit` 會對 stage2 打 Gemini Flash（JSON Schema、`p-limit` 8）。CI 用 mock 計 call-count；live Vertex 唔喺 merge gate。`layer2` / `audit` **禁止新建** `pipeline_runs`（必須 `--pipeline-run-id` 或 `--continue-latest`）。`asia-east1` 沒有 Gemini `generateContent`；BQ / embedding 維持 `GCP_LOCATION`，live audit 設 `GEMINI_LOCATION=global`（或 `asia-southeast1` / `asia-northeast1`）。
 
 ## Layer 2 種子句（`v0_hypothesis`）
 
@@ -48,7 +48,7 @@ Layer 2 SQL 在 [`sql/layer2/`](sql/layer2/)（embed seeds / embed reviews / cos
 
 ## GCP（可選）
 
-[`scripts/bootstrap-gcp.sh`](scripts/bootstrap-gcp.sh) **只 echo 步驟**（enable APIs、dataset、staging bucket、connection、最小 IAM、CREATE MODEL）。真正建 connection / remote model 是 sandbox checklist，不是 merge gate。區域鎖定 `asia-east1`。`CREATE MODEL` 對 `text-multilingual-embedding-002` 404 就停，不要改 004。
+[`scripts/bootstrap-gcp.sh`](scripts/bootstrap-gcp.sh) **只 echo 步驟**（enable APIs、dataset、staging bucket、connection、最小 IAM、CREATE MODEL）。真正建 connection / remote model 是 sandbox checklist，不是 merge gate。BQ / embedding 鎖定 `asia-east1`。`CREATE MODEL` 對 `text-multilingual-embedding-002` 404 就停，不要改 004。Gemini Flash 該區 404 時設 `GEMINI_LOCATION`，不要改 `GCP_LOCATION`。
 
 ## 安全
 
