@@ -128,8 +128,8 @@ USING (
    AND prev.model_id = @gemini_model
    AND prev.prompt_version = @prompt_version
    AND prev.pipeline_run_id != @pipeline_run_id
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY s.review_id ORDER BY prev.assessed_at DESC) = 1
   WHERE s.pipeline_run_id = @pipeline_run_id
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY s.review_id ORDER BY prev.assessed_at DESC) = 1
 ) S
 ON T.pipeline_run_id = S.pipeline_run_id AND T.review_id = S.review_id
 WHEN NOT MATCHED THEN INSERT (
