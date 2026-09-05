@@ -6,8 +6,11 @@ export {
   loadEnv,
   loadDefaultConfig,
   commandRequiresGcp,
+  loadBrightDataBrowserEnv,
+  BrightDataCredentialsError,
+  GCP_COMMANDS,
 } from './shared/env.js';
-export type { AppConfig, CommandName, LoadedEnv } from './shared/env.js';
+export type { AppConfig, CommandName, LoadedEnv, BrightDataBrowserEnv } from './shared/env.js';
 export { getLogger, createLogger } from './shared/logger.js';
 export {
   FUNNEL_STAGE2_OF_RAW_LOOSE,
