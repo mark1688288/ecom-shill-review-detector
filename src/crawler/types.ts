@@ -5,6 +5,7 @@ import { LANGUAGE_HINTS } from '../shared/types.js';
 /**
  * One JSONL object per line. Field names are the v1 contract — do not invent others.
  * `reviewer_id_raw` exists only in memory; never write it to NDJSON / BigQuery.
+ * Marketplace harvest (e.g. HKTVmall wrappers) must map onto this object.
  */
 export const FixtureReviewRaw = z.object({
   marketplace: z.string().min(1).default('fixture'),
