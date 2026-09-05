@@ -32,3 +32,6 @@ pnpm-debug.log*
 # local scratch notes (not the design spec)
 docs/gcp-commands.md
 docs/chat-session-01.md
+docs/chat-session-02.md
+docs/chat-session-03.md
+docs/design-bright-data-chat-session-01.md
