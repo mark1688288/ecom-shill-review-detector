@@ -79,12 +79,36 @@ export function sqlParamOrNull(
   return `@${name}`;
 }
 
-export async function runQuery(
+export type QueryWithJobResult = {
+  rows: Record<string, unknown>[];
+  jobId?: string;
+};
+
+export function extractJobId(job: unknown): string | undefined {
+  if (typeof job !== 'object' || job === null) {
+    return undefined;
+  }
+  const rec = job as {
+    id?: unknown;
+    metadata?: { jobReference?: { jobId?: unknown } };
+    jobReference?: { jobId?: unknown };
+  };
+  if (typeof rec.id === 'string' && rec.id.length > 0) {
+    return rec.id;
+  }
+  const ref = rec.jobReference ?? rec.metadata?.jobReference;
+  if (typeof ref?.jobId === 'string' && ref.jobId.length > 0) {
+    return ref.jobId;
+  }
+  return undefined;
+}
+
+export async function runQueryWithJob(
   bq: BigQuery,
   config: BqConfig,
   query: string,
   params?: Record<string, unknown>,
-): Promise<Record<string, unknown>[]> {
+): Promise<QueryWithJobResult> {
   const options: Query = {
     query,
     location: config.location,
@@ -92,6 +116,20 @@ export async function runQuery(
   if (params !== undefined && Object.keys(params).length > 0) {
     options.params = params;
   }
-  const [rows] = await bq.query(options);
-  return rows as Record<string, unknown>[];
+  const [rows, job] = await bq.query(options);
+  const jobId = extractJobId(job);
+  if (jobId === undefined) {
+    return { rows: rows as Record<string, unknown>[] };
+  }
+  return { rows: rows as Record<string, unknown>[], jobId };
+}
+
+export async function runQuery(
+  bq: BigQuery,
+  config: BqConfig,
+  query: string,
+  params?: Record<string, unknown>,
+): Promise<Record<string, unknown>[]> {
+  const result = await runQueryWithJob(bq, config, query, params);
+  return result.rows;
 }

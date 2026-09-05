@@ -18,6 +18,11 @@ import {
 import { loadEnv, type GcpEnv } from '../../shared/env.js';
 import { createLogger } from '../../shared/logger.js';
 import {
+  logFunnelTightness,
+  parseBqNumber,
+  runQueryLogged,
+} from '../../shared/metrics.js';
+import {
   printPipelineRunId,
   readLatestRun,
   resolvePipelineRunId,
@@ -239,11 +244,18 @@ WHERE pipeline_run_id = @pipeline_run_id`,
   );
 }
 
+type AnalyzeCountQuery = AnalyzeCounts & {
+  n_raw: number | null;
+  n_stage1: number | null;
+  n_stage2: number | null;
+  pct_stage2_of_raw: number | null;
+};
+
 async function selectAnalyzeCounts(
   bq: BigQuery,
   config: BqConfig,
   pipelineRunId: string,
-): Promise<AnalyzeCounts> {
+): Promise<AnalyzeCountQuery> {
   const stats = quotedTable(config, 'store_shill_stats');
   const bursts = quotedTable(config, 'burst_events');
   const collisions = quotedTable(config, 'cross_store_template_collisions');
@@ -260,6 +272,10 @@ async function selectAnalyzeCounts(
   collisions.n_collisions,
   edges.n_edges,
   funnel.n_funnel,
+  funnel.n_raw,
+  funnel.n_stage1,
+  funnel.n_stage2,
+  funnel.pct_stage2_of_raw,
   assessed.n_assessed
 FROM (
   SELECT COUNT(*) AS n_store_stats
@@ -284,7 +300,12 @@ CROSS JOIN (
   WHERE pipeline_run_id = @pipeline_run_id
 ) AS edges
 CROSS JOIN (
-  SELECT COUNT(*) AS n_funnel
+  SELECT
+    COUNT(*) AS n_funnel,
+    ANY_VALUE(n_raw) AS n_raw,
+    ANY_VALUE(n_stage1) AS n_stage1,
+    ANY_VALUE(n_stage2) AS n_stage2,
+    ANY_VALUE(pct_stage2_of_raw) AS pct_stage2_of_raw
   FROM ${funnel}
   WHERE pipeline_run_id = @pipeline_run_id
 ) AS funnel
@@ -307,6 +328,10 @@ CROSS JOIN (
     n_edges: asInt(row['n_edges'], 'n_edges'),
     n_funnel: asInt(row['n_funnel'], 'n_funnel'),
     n_assessed: asInt(row['n_assessed'], 'n_assessed'),
+    n_raw: parseBqNumber(row['n_raw']),
+    n_stage1: parseBqNumber(row['n_stage1']),
+    n_stage2: parseBqNumber(row['n_stage2']),
+    pct_stage2_of_raw: parseBqNumber(row['pct_stage2_of_raw']),
   };
 }
 
@@ -371,10 +396,26 @@ export async function runAnalyze(opts: RunAnalyzeOptions): Promise<AnalyzeComman
       for (const name of step.params) {
         params[name] = sqlParams[name];
       }
-      await runQuery(bq, config, sql, params);
+      await runQueryLogged(bq, config, sql, params, logger);
     }
 
-    const counts = await selectAnalyzeCounts(bq, config, resolved.pipeline_run_id);
+    const counted = await selectAnalyzeCounts(bq, config, resolved.pipeline_run_id);
+    const counts: AnalyzeCounts = {
+      n_store_stats: counted.n_store_stats,
+      n_burst_events: counted.n_burst_events,
+      n_burst_flagged: counted.n_burst_flagged,
+      n_collisions: counted.n_collisions,
+      n_edges: counted.n_edges,
+      n_funnel: counted.n_funnel,
+      n_assessed: counted.n_assessed,
+    };
+    logFunnelTightness(logger, {
+      pipeline_run_id: resolved.pipeline_run_id,
+      pct_stage2_of_raw: counted.pct_stage2_of_raw,
+      n_raw: counted.n_raw,
+      n_stage1: counted.n_stage1,
+      n_stage2: counted.n_stage2,
+    });
 
     await updatePipelineRun({
       ...updateBase,
@@ -417,6 +458,10 @@ export async function runAnalyze(opts: RunAnalyzeOptions): Promise<AnalyzeComman
       n_edges: counts.n_edges,
       n_funnel: counts.n_funnel,
       n_assessed: counts.n_assessed,
+      n_raw: counted.n_raw,
+      n_stage1: counted.n_stage1,
+      n_stage2: counted.n_stage2,
+      pct_stage2_of_raw: counted.pct_stage2_of_raw,
       shill_score_threshold: SHILL_SCORE_THRESHOLD,
       cross_store_threshold: crossStoreThreshold,
     });

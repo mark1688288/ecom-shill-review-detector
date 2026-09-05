@@ -32,15 +32,41 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm cli -- --help
+pnpm cli -- crawl --adapter fixture --input fixtures/reviews/cantonese-mix.jsonl --dry-run
 ```
 
 Help 必須寫成 `pnpm cli -- --help`（pnpm 把第一個 `--` 當 script 參數分隔）。`seeds` 仍 **exit 2**（`not implemented`）。
 
-`layer2` 用 BigQuery remote model（ENDPOINT 來自 `EMBEDDING_MODEL`，預設 `text-multilingual-embedding-002`）embed 種子同 stage1，再以 cosine distance ≤ config 門檻寫入 stage2。`CREATE MODEL` 對 multilingual-002 在該區 404 時必須停止，禁止默默改 `text-embedding-004`。CI **不**執行 `ML.GENERATE_EMBEDDING`。
+CI **只**保證 TypeScript goldens、mock audit call-count、同 fixture `crawl --dry-run`。CI **不**連 GCP、**不**執行 `ML.GENERATE_EMBEDDING`、**不**驗證 SQL 語意，亦 **不斷言** 漏斗 35%/5%。
+
+`layer2` 用 BigQuery remote model（ENDPOINT 來自 `EMBEDDING_MODEL`，預設 `text-multilingual-embedding-002`）embed 種子同 stage1，再以 cosine distance ≤ config 門檻寫入 stage2。`CREATE MODEL` 對 multilingual-002 在該區 404 時必須停止，禁止默默改 `text-embedding-004`。
 
 `audit` 會對 stage2 打 Gemini Flash（JSON Schema、`p-limit` 8）。CI 用 mock 計 call-count；live Vertex 唔喺 merge gate。`layer2` / `audit` / `analyze` / `report` **禁止新建** `pipeline_runs`（必須 `--pipeline-run-id` 或 `--continue-latest`）。`asia-east1` 沒有 Gemini `generateContent`；BQ / embedding 維持 `GCP_LOCATION`，live audit 設 `GEMINI_LOCATION=global`（或 `asia-southeast1` / `asia-northeast1`）。
 
-`analyze` 按 `pipeline_run_id` DELETE+INSERT 單店水分、burst、跨店 template/embedding 碰撞與 edge list。`report` 讀分析表寫 markdown/JSON（頂部「統計 ≠ 法律事實」）；`--dot` 另寫 Graphviz。CI 不斷言漏斗 35%/5%。`shill_score>=75` 同 cosine 0.28 一樣是可調預設，不是 SLA。
+`analyze` 按 `pipeline_run_id` DELETE+INSERT 單店水分、burst、跨店 template/embedding 碰撞、edge list 同 `funnel_stats`。`report` 讀分析表寫 markdown/JSON（頂部「統計 ≠ 法律事實」）；`--dot` 另寫 Graphviz。`shill_score>=75` 同 cosine 0.28 一樣是可調預設，不是 SLA。漏斗百分比只寫 `funnel_stats` 同 JSON log；`pct_stage2_of_raw > 0.15` 或 `< 0.01` 會 warn，唔會令 CLI 失敗。BQ job 之後會查 `region-${GCP_LOCATION}.INFORMATION_SCHEMA.JOBS_BY_PROJECT` 並 log `bq_job_bytes`（禁止把區域寫死成 `asia-east1`）。
+
+## Fixture 管線 walkthrough
+
+v1 **只跑 fixture**。`crawl --dry-run` 同 unit test **不**需要 `GCP_*`。下面 sandbox 段先要 `scripts/bq-apply.sh` 同 `.env`（見「GCP（可選）」）。
+
+```bash
+# GCP-free（CI 亦跑呢步）
+pnpm cli -- crawl --adapter fixture --input fixtures/reviews/cantonese-mix.jsonl --dry-run
+
+# Sandbox（需要 ADC + BQ dataset + staging bucket）
+set -a && source .env && set +a
+
+pnpm cli -- crawl --adapter fixture --input fixtures/reviews/cantonese-mix.jsonl
+pnpm cli -- load --ndjson data/batches/<crawl_batch_id>/reviews.ndjson --continue-latest
+pnpm cli -- layer1 --continue-latest
+pnpm cli -- layer2 --continue-latest
+# live audit：asia-east1 無 generateContent 時設 GEMINI_LOCATION=global，唔好改 GCP_LOCATION
+pnpm cli -- audit --continue-latest
+pnpm cli -- analyze --continue-latest
+pnpm cli -- report --continue-latest --format markdown --dot
+```
+
+`data/runs/latest` 會記住 `pipeline_run_id`。重跑同一 run 時 `layer1` / `layer2` / `analyze` 會先 DELETE 該 run 再 INSERT。`audit --skip-existing`（預設）會 copy-forward 同分同 model／prompt 嘅舊分數。
 
 ## Layer 2 種子句（`v0_hypothesis`）
 

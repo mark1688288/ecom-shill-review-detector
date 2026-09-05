@@ -38,3 +38,6 @@ jobs:
 
       - name: CLI help
         run: pnpm cli -- --help
+
+      - name: Fixture crawl dry-run
+        run: pnpm cli -- crawl --adapter fixture --input fixtures/reviews/cantonese-mix.jsonl --dry-run

@@ -226,6 +226,9 @@ export async function runAudit(opts: RunAuditOptions): Promise<AuditCommandResul
       n_scored: workerResult.n_scored,
       n_errors: workerResult.n_errors,
       thinking_not_off: workerResult.thinking_not_off,
+      gemini_cost_usd_est: workerResult.gemini_cost_usd_est,
+      gemini_error_rate: workerResult.gemini_error_rate,
+      signal_span_mismatch_total: workerResult.signal_span_mismatch_total,
     });
     return {
       ...workerResult,

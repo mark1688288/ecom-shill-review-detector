@@ -2,6 +2,11 @@
 import pLimit from 'p-limit';
 import type { Logger } from 'pino';
 import type { AuditCheckpoint, PendingReview } from './checkpoint.js';
+import {
+  geminiErrorRate,
+  logPipelineCounters,
+  summarizeGeminiCostUsd,
+} from '../shared/metrics.js';
 import { estimateGeminiCostUsd, type GeminiClient } from './gemini-client.js';
 import { buildUserPrompt, SYSTEM_PROMPT } from './prompt.js';
 import {
@@ -44,6 +49,9 @@ export type AuditWorkerResult = {
   n_errors: number;
   n_copy_skipped_model_mismatch: number;
   thinking_not_off: boolean;
+  gemini_cost_usd_est: number | null;
+  gemini_error_rate: number;
+  signal_span_mismatch_total: number;
   abort_reason?: string;
 };
 
@@ -109,7 +117,7 @@ export async function runAuditWorker(opts: RunAuditWorkerOptions): Promise<Audit
   });
   const wouldCall = opts.limit === undefined ? pending.length : Math.min(opts.limit, pending.length);
   if (wouldCall > opts.maxReviewsPerRun) {
-    return {
+    const aborted: AuditWorkerResult = {
       status: 'aborted',
       pipeline_run_id: opts.pipelineRunId,
       n_copied,
@@ -120,8 +128,17 @@ export async function runAuditWorker(opts: RunAuditWorkerOptions): Promise<Audit
       n_errors: 0,
       n_copy_skipped_model_mismatch,
       thinking_not_off: false,
+      gemini_cost_usd_est: null,
+      gemini_error_rate: 0,
+      signal_span_mismatch_total: 0,
       abort_reason: 'max_reviews_per_run',
     };
+    logPipelineCounters(opts.logger, opts.pipelineRunId, {
+      gemini_cost_usd_est: aborted.gemini_cost_usd_est,
+      gemini_error_rate: aborted.gemini_error_rate,
+      signal_span_mismatch_total: aborted.signal_span_mismatch_total,
+    });
+    return aborted;
   }
 
   const batch = pending.slice(0, opts.limit ?? pending.length);
@@ -130,6 +147,8 @@ export async function runAuditWorker(opts: RunAuditWorkerOptions): Promise<Audit
   let n_scored = 0;
   let n_errors = 0;
   let thinking_not_off = false;
+  let signal_span_mismatch_total = 0;
+  const costEstimates: Array<number | null> = [];
 
   await Promise.all(
     batch.map((row) =>
@@ -162,6 +181,7 @@ export async function runAuditWorker(opts: RunAuditWorkerOptions): Promise<Audit
               generated.promptTokenCount ?? 0,
               generated.candidatesTokenCount ?? 0,
             );
+            costEstimates.push(usd);
             if (usd !== null) {
               opts.logger.info({
                 event: 'gemini_token_cost_usd_est',
@@ -172,12 +192,21 @@ export async function runAuditWorker(opts: RunAuditWorkerOptions): Promise<Audit
             }
           } else if (typeof generated.thoughtsTokenCount === 'number') {
             thinking_not_off = true;
+            costEstimates.push(null);
             opts.logger.warn({
               event: 'thinking_not_off',
               thoughtsTokenCount: generated.thoughtsTokenCount,
               pipeline_run_id: opts.pipelineRunId,
               review_id: row.review_id,
             });
+          } else {
+            costEstimates.push(
+              estimateGeminiCostUsd(
+                opts.modelId,
+                generated.promptTokenCount ?? 0,
+                generated.candidatesTokenCount ?? 0,
+              ),
+            );
           }
 
           const sanitized = sanitizeGeminiPayload(
@@ -217,6 +246,7 @@ export async function runAuditWorker(opts: RunAuditWorkerOptions): Promise<Audit
               tokens,
             ),
           );
+          signal_span_mismatch_total += sanitized.signal_span_mismatch_count;
           n_scored += 1;
         } catch (err) {
           n_errors += 1;
@@ -244,6 +274,16 @@ export async function runAuditWorker(opts: RunAuditWorkerOptions): Promise<Audit
   );
 
   const aborted = opts.abortSignal?.aborted === true;
+  const gemini_cost_usd_est = summarizeGeminiCostUsd({
+    thinkingNotOff: thinking_not_off,
+    estimates: costEstimates,
+  });
+  const gemini_error_rate = geminiErrorRate(n_errors, batch.length);
+  logPipelineCounters(opts.logger, opts.pipelineRunId, {
+    gemini_cost_usd_est,
+    gemini_error_rate,
+    signal_span_mismatch_total,
+  });
   return {
     status: aborted ? 'aborted' : 'succeeded',
     pipeline_run_id: opts.pipelineRunId,
@@ -255,6 +295,9 @@ export async function runAuditWorker(opts: RunAuditWorkerOptions): Promise<Audit
     n_errors,
     n_copy_skipped_model_mismatch,
     thinking_not_off,
+    gemini_cost_usd_est,
+    gemini_error_rate,
+    signal_span_mismatch_total,
     ...(aborted ? { abort_reason: 'signal' } : {}),
   };
 }
