@@ -220,6 +220,11 @@ describe('audit mock call-count', () => {
     expect(result1.n_scored).toBe(20);
     expect(result1.n_copied).toBe(0);
     expect(result1.status).toBe('succeeded');
+    expect(result1.gemini_error_rate).toBe(0);
+    expect(result1.signal_span_mismatch_total).toBe(0);
+    expect(result1.gemini_cost_usd_est).toBeCloseTo(
+      20 * ((12 / 1_000_000) * 1.5 + (24 / 1_000_000) * 9.0),
+    );
     expect(db.assessments).toHaveLength(20);
     expect(db.assessments.every((row) => row.score_source === 'gemini')).toBe(true);
     expect(db.pipelineRuns.get(RUN_A)?.status).toBe('succeeded');
@@ -229,6 +234,8 @@ describe('audit mock call-count', () => {
     expect(result2.n_gemini_http_calls).toBe(0);
     expect(result2.n_scored).toBe(0);
     expect(result2.n_pending).toBe(0);
+    expect(result2.gemini_cost_usd_est).toBeNull();
+    expect(result2.gemini_error_rate).toBe(0);
   });
 
   it('copy-forwards 20 rows to a new run with 0 Gemini calls when model and prompt match', async () => {

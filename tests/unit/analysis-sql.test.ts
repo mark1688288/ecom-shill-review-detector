@@ -80,6 +80,14 @@ describe('analysis SQL contracts', () => {
     expect(edges).toContain('COUNT(*) AS weight');
   });
 
+  it('treats funnel percentages as informational, not a CI SLA', () => {
+    expect(funnel).toMatch(/not CI SLA/i);
+    expect(funnel).toContain('SAFE_DIVIDE(n_stage1, n_raw)');
+    expect(funnel).toContain('SAFE_DIVIDE(n_stage2, n_raw)');
+    expect(funnel).not.toMatch(/0\.35/);
+    expect(funnel).not.toMatch(/0\.05/);
+  });
+
   it('computes pct_shill_75 from shill_score >= @shill_score_threshold', () => {
     expect(storeStats).toContain('COUNTIF(shill_score >= @shill_score_threshold) AS n_shill_75');
     expect(storeStats).toContain('SAFE_DIVIDE(assessed.n_shill_75, assessed.n_assessed) AS pct_shill_75');

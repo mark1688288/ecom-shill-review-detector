@@ -2,13 +2,8 @@
 import type { BigQuery, JobLoadMetadata, Table } from '@google-cloud/bigquery';
 import { Storage } from '@google-cloud/storage';
 import type { Logger } from 'pino';
-import {
-  getBigQuery,
-  quotedJobsByProject,
-  quotedTable,
-  runQuery,
-  type BqConfig,
-} from '../../shared/bq.js';
+import { getBigQuery, quotedTable, type BqConfig } from '../../shared/bq.js';
+import { logJobBytes, runQueryLogged } from '../../shared/metrics.js';
 import type { RawReviewNdjson } from './ndjson.js';
 import {
   parseGcsUri,
@@ -72,9 +67,10 @@ async function dropLoadTables(
   bq: BigQuery,
   config: BqConfig,
   crawlBatchId: string,
+  logger?: Logger,
 ): Promise<void> {
-  await runQuery(bq, config, buildDropTableSql(config, stagingTableId(crawlBatchId)));
-  await runQuery(bq, config, buildDropTableSql(config, dedupTableId(crawlBatchId)));
+  await runQueryLogged(bq, config, buildDropTableSql(config, stagingTableId(crawlBatchId)), undefined, logger);
+  await runQueryLogged(bq, config, buildDropTableSql(config, dedupTableId(crawlBatchId)), undefined, logger);
 }
 
 async function waitUntilRowCount(
@@ -87,7 +83,13 @@ async function waitUntilRowCount(
   const deadline = Date.now() + 60_000;
   let last = 0;
   while (Date.now() < deadline) {
-    const rows = await runQuery(bq, config, `SELECT COUNT(*) AS n FROM ${quoted}`);
+    const rows = await runQueryLogged(
+      bq,
+      config,
+      `SELECT COUNT(*) AS n FROM ${quoted}`,
+      undefined,
+      undefined,
+    );
     last = Number(rows[0]?.['n'] ?? 0);
     if (last >= expected) {
       return;
@@ -185,52 +187,26 @@ async function loadFromGcs(
   return job.jobReference?.jobId ?? undefined;
 }
 
-async function logJobBytes(
-  bq: BigQuery,
-  config: BqConfig,
-  jobId: string,
-  logger: Logger | undefined,
-): Promise<number | undefined> {
-  try {
-    const rows = await runQuery(
-      bq,
-      config,
-      `SELECT total_bytes_processed
-FROM ${quotedJobsByProject(config)}
-WHERE job_id = @job_id
-ORDER BY creation_time DESC
-LIMIT 1`,
-      { job_id: jobId },
-    );
-    const raw = rows[0]?.['total_bytes_processed'];
-    const bytes = typeof raw === 'number' ? raw : Number(raw);
-    if (Number.isFinite(bytes)) {
-      logger?.info({ event: 'bq_job_bytes', job_id: jobId, bq_job_bytes: bytes });
-      return bytes;
-    }
-  } catch (err) {
-    logger?.warn({
-      event: 'bq_job_bytes_unavailable',
-      job_id: jobId,
-      err: err instanceof Error ? err.message : String(err),
-    });
-  }
-  return undefined;
-}
-
 async function invalidateEmbeddings(
   bq: BigQuery,
   config: BqConfig,
   reviewIds: string[],
+  logger?: Logger,
 ): Promise<void> {
   if (reviewIds.length === 0) {
     return;
   }
-  const exists = await runQuery(bq, config, buildEmbeddingsTableExistsSql(config));
+  const exists = await runQueryLogged(
+    bq,
+    config,
+    buildEmbeddingsTableExistsSql(config),
+    undefined,
+    logger,
+  );
   if (exists.length === 0) {
     return;
   }
-  await runQuery(bq, config, buildDeleteEmbeddingsSql(config), { review_ids: reviewIds });
+  await runQueryLogged(bq, config, buildDeleteEmbeddingsSql(config), { review_ids: reviewIds }, logger);
 }
 
 export async function executeLoadAndMerge(opts: ExecuteLoadOptions): Promise<LoadMergeResult> {
@@ -241,8 +217,14 @@ export async function executeLoadAndMerge(opts: ExecuteLoadOptions): Promise<Loa
   let bq_job_bytes: number | undefined;
 
   try {
-    await dropLoadTables(bq, opts.config, opts.crawlBatchId);
-    await runQuery(bq, opts.config, buildCreateStagingSql(opts.config, opts.crawlBatchId));
+    await dropLoadTables(bq, opts.config, opts.crawlBatchId, opts.logger);
+    await runQueryLogged(
+      bq,
+      opts.config,
+      buildCreateStagingSql(opts.config, opts.crawlBatchId),
+      undefined,
+      opts.logger,
+    );
 
     if (opts.mode === 'direct') {
       await insertAllChunked(bq, opts.config, stagingTable, opts.rows);
@@ -268,19 +250,37 @@ export async function executeLoadAndMerge(opts: ExecuteLoadOptions): Promise<Loa
         opts.config.project,
       );
       if (jobId !== undefined) {
-        const bytes = await logJobBytes(bq, opts.config, jobId, opts.logger);
-        if (bytes !== undefined) {
-          bq_job_bytes = bytes;
+        const logged = await logJobBytes(bq, opts.config, jobId, opts.logger);
+        if (logged?.total_bytes_processed !== null && logged?.total_bytes_processed !== undefined) {
+          bq_job_bytes = logged.total_bytes_processed;
         }
       }
     }
 
-    await runQuery(bq, opts.config, buildDedupSql(opts.config, opts.crawlBatchId));
-    const preview = await runQuery(bq, opts.config, buildMergePreviewSql(opts.config, opts.crawlBatchId));
+    await runQueryLogged(
+      bq,
+      opts.config,
+      buildDedupSql(opts.config, opts.crawlBatchId),
+      undefined,
+      opts.logger,
+    );
+    const preview = await runQueryLogged(
+      bq,
+      opts.config,
+      buildMergePreviewSql(opts.config, opts.crawlBatchId),
+      undefined,
+      opts.logger,
+    );
     const stats = aggregateMergePreview(preview);
     // Before MERGE: a later failed DELETE cannot be retried once hashes already match.
-    await invalidateEmbeddings(bq, opts.config, stats.updatedReviewIds);
-    await runQuery(bq, opts.config, buildMergeSql(opts.config, opts.crawlBatchId));
+    await invalidateEmbeddings(bq, opts.config, stats.updatedReviewIds, opts.logger);
+    await runQueryLogged(
+      bq,
+      opts.config,
+      buildMergeSql(opts.config, opts.crawlBatchId),
+      undefined,
+      opts.logger,
+    );
 
     const result: LoadMergeResult = {
       ...stats,
@@ -296,7 +296,7 @@ export async function executeLoadAndMerge(opts: ExecuteLoadOptions): Promise<Loa
     return result;
   } finally {
     try {
-      await dropLoadTables(bq, opts.config, opts.crawlBatchId);
+      await dropLoadTables(bq, opts.config, opts.crawlBatchId, opts.logger);
     } catch (err) {
       opts.logger?.warn({
         event: 'staging_drop_failed',
