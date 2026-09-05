@@ -88,7 +88,7 @@
 | KD-01 | 語言 | **TypeScript**（Node.js 22 LTS），不用裸 JS | 與 JSON Schema / Zod 對齊、agent 實作較不易漂型別；使用者指定 Node CLI，不改 runtime。 |
 | KD-02 | repo 形狀 | **單一 package** + 資料夾分區，**不是** pnpm multi-package monorepo | 綠地、一個 CLI 產物；拆 `packages/*` 在只有 crawler+worker 時增加無謂邊界。SQL 獨立在 `sql/`。 |
 | KD-03 | package manager | **pnpm** | lockfile 嚴格、CI 可重現。 |
-| KD-04 | 預設 adapter | **`fixture`**（JSONL replay）；`json_api` 為介面 + **零 HTTP stub** | **2026-08-27 使用者確認**：v1 fixture-first，不實作 live crawler / HTTP。未來若另有指令點名 marketplace 才開 PR。任何未來 live adapter 的 ToS 風險仍 **High**。 |
+| KD-04 | 預設 adapter | **`fixture`**（JSONL replay）；`json_api` 為介面 + **零 HTTP stub** | **2026-08-27 使用者確認**：v1 fixture-first，不實作 live crawler / HTTP。未來若另有指令點名 marketplace 才開 PR。任何未來 live adapter 的 ToS 風險仍 **High**。Named exception：操作者明示的 `ecom-shill harvest`（Bright Data Browser API → FixtureReviewRaw JSONL；見 [`docs/design-bright-data-scrapping-pro-browser-hktvmall.md`](design-bright-data-scrapping-pro-browser-hktvmall.md)）。CI、`crawl --adapter fixture`、`json_api` stub **仍零 live HTTP**。 |
 | KD-05 | BQ 寫入 | **GCS NDJSON → load job → 每批次獨立 staging 表 → `MERGE`**，不用 production streaming insert | Load 對批次更便宜、可重放檔案、`insertId` 去重視窗太短。獨立 staging 避免平行 `load` 互 truncate。Fixture 測試可用 `insertAll` 捷徑（`--load-mode=direct`）。 |
 | KD-06 | 冪等鍵 | `review_id` 穩定（有 native id 則不含內文）；`content_hash` 偵測改寫 | 同則重爬不複製。`content_hash` 變更時 **UPDATE 正文並作廢下游** embedding/assessment（不改 `review_id`）。BQ `MERGE` **沒有** `DO NOTHING`；未匹配才 INSERT，匹配且 hash 變才 UPDATE。 |
 | KD-07 | `stage1_filtered` / `stage2_*` | **TABLE**（每次 `pipeline_run_id` 物化），另附 debug **VIEW** | Embedding / Gemini 需要穩定快照；VIEW 每次重掃 raw 會重複計費。 |
@@ -565,6 +565,8 @@ ecom-shill report
   --out <path>                        default reports/<pipeline_run_id>.md|.json
 
 ecom-shill seeds                     Phase 5；v1 help 顯示、呼叫 exit 2 not implemented
+
+ecom-shill harvest                   見 docs/design-bright-data-scrapping-pro-browser-hktvmall.md；不走 addRunFlags；不建立 pipeline_runs
 ```
 
 Help：`pnpm cli -- --help`（pnpm 把第一個 `--` 當 script 參數分隔）。子命令已登記但未實作 → **exit 2** + `not implemented`。Phase 0 的 `seeds` 屬此類；`json_api` crawl 已實作但零 HTTP，**不是** not implemented。
@@ -1816,6 +1818,7 @@ Phase 2 **CI 验收** = TS Layer 1 golden +（sandbox 才做）dim=768 且 `min_
 1. **v1 不實作 live crawler**；不提供具體目標站 path、header、簽名算法。
 2. 操作情境為 **個人研究／分析工具**（GPL）；report「統計 ≠ 法律事實」；無自動下架。
 3. 正文 retention：不自動刪（Accepted default）。
+4. 操作者明示的 `ecom-shill harvest`（Bright Data Browser API → JSONL）是 KD-04 named exception；CI／`fixture`／`json_api` **不變**。真實商店 URL 不得進 git（含 `tests/`；live URL 只從 `HARVEST_LIVE_URL` 讀）。
 
 ### Auth
 

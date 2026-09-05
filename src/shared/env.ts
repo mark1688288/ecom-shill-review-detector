@@ -9,6 +9,7 @@ export const MIN_SALT_LENGTH = 16;
 
 export const COMMAND_NAMES = [
   'crawl',
+  'harvest',
   'load',
   'layer1',
   'layer2',
@@ -19,6 +20,15 @@ export const COMMAND_NAMES = [
 ] as const;
 
 export type CommandName = (typeof COMMAND_NAMES)[number];
+
+export const GCP_COMMANDS = [
+  'load',
+  'layer1',
+  'layer2',
+  'audit',
+  'analyze',
+  'report',
+] as const;
 
 const PACKAGE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -136,7 +146,41 @@ export function commandRequiresGcp(command: CommandName, dryRun: boolean): boole
   if (dryRun) {
     return false;
   }
-  return command !== 'crawl' && command !== 'seeds';
+  return (GCP_COMMANDS as readonly string[]).includes(command);
+}
+
+export class BrightDataCredentialsError extends Error {
+  readonly exitCode = 1;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'BrightDataCredentialsError';
+  }
+}
+
+const BROWSER_COUNTRY_SUFFIX_RE = /-country-[a-z]{2}$/i;
+
+export type BrightDataBrowserEnv = {
+  username: string;
+  password: string;
+};
+
+export function loadBrightDataBrowserEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): BrightDataBrowserEnv {
+  const username = env['BRIGHTDATA_BROWSERAPI_USERNAME'];
+  const password = env['BRIGHTDATA_BROWSERAPI_PASSWORD'];
+  if (username === undefined || username === '' || password === undefined || password === '') {
+    throw new BrightDataCredentialsError(
+      'BRIGHTDATA_BROWSERAPI_USERNAME and BRIGHTDATA_BROWSERAPI_PASSWORD are required for live harvest',
+    );
+  }
+  if (BROWSER_COUNTRY_SUFFIX_RE.test(username)) {
+    throw new BrightDataCredentialsError(
+      'BRIGHTDATA_BROWSERAPI_USERNAME must not already end in -country-xx; remove the country suffix from the env username; harvest appends -country-<iso>',
+    );
+  }
+  return { username, password };
 }
 
 export type LoadEnvOptions = {

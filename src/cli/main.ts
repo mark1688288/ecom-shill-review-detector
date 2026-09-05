@@ -6,6 +6,7 @@ import { Command, Option } from 'commander';
 import { analyzeAction } from './commands/analyze.js';
 import { auditAction } from './commands/audit.js';
 import { crawlAction } from './commands/crawl.js';
+import { harvestAction } from './commands/harvest.js';
 import { layer1Action } from './commands/layer1.js';
 import { layer2Action } from './commands/layer2.js';
 import { loadAction } from './commands/load.js';
@@ -127,6 +128,33 @@ export function buildProgram(): Command {
       .option('--dot', 'Also write a Graphviz .dot edge list', false)
       .option('--out <path>', 'Output path (default reports/<pipeline_run_id>.md|.json)'),
   ).action(reportAction);
+
+  program
+    .command('harvest')
+    .description(
+      'Harvest public HKTVmall reviews via Bright Data Browser API to FixtureReviewRaw JSONL. harvest does not create pipeline runs; crawl the JSONL afterwards.',
+    )
+    .option('--marketplace <id>', 'Marketplace id (H1 only allows hktvmall)', 'hktvmall')
+    .option(
+      '--url <https://...>',
+      'Public product URL (repeatable)',
+      (value: string, previous: string[]) => {
+        previous.push(value);
+        return previous;
+      },
+      [] as string[],
+    )
+    .option('--url-file <path>', 'Local text file with one public product URL per line')
+    .option('--out <jsonl>', 'Output JSONL path (default data/harvested/<YYYYMMDDTHHMMSSZ>-hktvmall.jsonl)')
+    .option('--i-accept-tos', 'Required for live harvest (operator evaluated ToS / robots / local law)', false)
+    .option('--dry-run', 'Validate URLs and print plan_*; no CDP, no files, no creds, no ToS', false)
+    .option('--country <iso>', 'Browser API country suffix (default HK)', 'HK')
+    .option('--max-reviews <n>', 'Cap unique native_review_id across pages')
+    .option('--max-pages <n>', 'Max pages to parse per URL (default 20)', '20')
+    .option('--goto-timeout-ms <n>', 'page.goto timeout (default 120000)', '120000')
+    .option('--wrapper-timeout-ms <n>', 'Review-tab click and wrapper wait timeout (default 30000)', '30000')
+    .option('--strict', 'Fail when any wrapper is rejected (empty harvest always fails)', false)
+    .action(harvestAction);
 
   program
     .command('seeds')
