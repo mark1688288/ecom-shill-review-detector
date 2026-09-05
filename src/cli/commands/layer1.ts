@@ -16,6 +16,7 @@ import {
 } from '../../shared/bq.js';
 import { loadEnv, type AppConfig, type GcpEnv } from '../../shared/env.js';
 import { createLogger } from '../../shared/logger.js';
+import { runQueryLogged } from '../../shared/metrics.js';
 import {
   printPipelineRunId,
   readLatestRun,
@@ -335,13 +336,19 @@ export async function runLayer1(opts: RunLayer1Options): Promise<Layer1CommandRe
     markedRunning = true;
 
     const seedsSql = readRepoSql(repoRoot, 'sql/seeds/logistics_canned_phrases.sql', config.dataset);
-    await runQuery(bq, config, seedsSql);
+    await runQueryLogged(bq, config, seedsSql, undefined, logger);
 
     const filterSql = readRepoSql(repoRoot, 'sql/layer1/filter_stage1.sql', config.dataset);
     const debugSql = readRepoSql(repoRoot, 'sql/layer1/debug_exclusions.sql', config.dataset);
-    await runQuery(bq, config, `${filterSql}\n${debugSql}\n`, {
-      pipeline_run_id: resolved.pipeline_run_id,
-    });
+    await runQueryLogged(
+      bq,
+      config,
+      `${filterSql}\n${debugSql}\n`,
+      {
+        pipeline_run_id: resolved.pipeline_run_id,
+      },
+      logger,
+    );
 
     const funnel = await selectFunnelCounts(bq, config, resolved.pipeline_run_id);
 

@@ -17,6 +17,7 @@ import {
 } from '../../shared/bq.js';
 import { loadEnv, type GcpEnv } from '../../shared/env.js';
 import { createLogger } from '../../shared/logger.js';
+import { runQueryLogged } from '../../shared/metrics.js';
 import {
   printPipelineRunId,
   readLatestRun,
@@ -288,6 +289,7 @@ async function ensureRemoteModel(opts: {
   repoRoot: string;
   gcp: GcpEnv;
   embeddingModel: string;
+  logger: Logger;
 }): Promise<boolean> {
   if (await remoteModelExists(opts.bq, opts.config)) {
     return false;
@@ -302,7 +304,7 @@ async function ensureRemoteModel(opts: {
     embeddingModel: opts.embeddingModel,
   });
   try {
-    await runQuery(opts.bq, opts.config, sql);
+    await runQueryLogged(opts.bq, opts.config, sql, undefined, opts.logger);
   } catch (err) {
     throw new Error(formatCreateModelFailure(err, opts.embeddingModel));
   }
@@ -511,11 +513,12 @@ export async function runLayer2(opts: RunLayer2Options): Promise<Layer2CommandRe
       repoRoot,
       gcp,
       embeddingModel,
+      logger,
     });
 
     if (seedVersion === 'v0_hypothesis') {
       const seedsSql = readRepoSql(repoRoot, 'sql/seeds/pr_seed_phrases_v0.sql', config.dataset);
-      await runQuery(bq, config, seedsSql);
+      await runQueryLogged(bq, config, seedsSql, undefined, logger);
     }
 
     const nSeeds = await countActiveSeeds(bq, config, seedVersion);
@@ -524,24 +527,42 @@ export async function runLayer2(opts: RunLayer2Options): Promise<Layer2CommandRe
     }
 
     const embedSeedsSql = readRepoSql(repoRoot, 'sql/layer2/embed_seeds.sql', config.dataset);
-    await runQuery(bq, config, embedSeedsSql, {
-      seed_version: seedVersion,
-      embedding_model: embeddingModel,
-    });
+    await runQueryLogged(
+      bq,
+      config,
+      embedSeedsSql,
+      {
+        seed_version: seedVersion,
+        embedding_model: embeddingModel,
+      },
+      logger,
+    );
 
     const embedReviewsSql = readRepoSql(repoRoot, 'sql/layer2/embed_reviews.sql', config.dataset);
-    await runQuery(bq, config, embedReviewsSql, {
-      pipeline_run_id: resolved.pipeline_run_id,
-      embedding_model: embeddingModel,
-    });
+    await runQueryLogged(
+      bq,
+      config,
+      embedReviewsSql,
+      {
+        pipeline_run_id: resolved.pipeline_run_id,
+        embedding_model: embeddingModel,
+      },
+      logger,
+    );
 
     const distanceSql = readRepoSql(repoRoot, 'sql/layer2/distance_filter.sql', config.dataset);
-    await runQuery(bq, config, distanceSql, {
-      pipeline_run_id: resolved.pipeline_run_id,
-      seed_version: seedVersion,
-      embedding_model: embeddingModel,
-      threshold,
-    });
+    await runQueryLogged(
+      bq,
+      config,
+      distanceSql,
+      {
+        pipeline_run_id: resolved.pipeline_run_id,
+        seed_version: seedVersion,
+        embedding_model: embeddingModel,
+        threshold,
+      },
+      logger,
+    );
 
     const funnel = await selectFunnelCounts(
       bq,
