@@ -10,6 +10,14 @@ export {
 export type { AppConfig, CommandName, LoadedEnv } from './shared/env.js';
 export { getLogger, createLogger } from './shared/logger.js';
 export {
+  FUNNEL_STAGE2_OF_RAW_LOOSE,
+  FUNNEL_STAGE2_OF_RAW_TIGHT,
+  classifyFunnelTightness,
+  geminiErrorRate,
+  summarizeGeminiCostUsd,
+} from './shared/metrics.js';
+export type { FunnelTightness, ProcessCounters } from './shared/metrics.js';
+export {
   resolvePipelineRunId,
   writeLatestRun,
   readLatestRun,

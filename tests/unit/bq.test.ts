@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import { describe, expect, it } from 'vitest';
-import { sqlParamOrNull } from '../../src/shared/bq.js';
+import {
+  extractJobId,
+  quotedJobsByProject,
+  sqlParamOrNull,
+} from '../../src/shared/bq.js';
 
 describe('sqlParamOrNull', () => {
   it('omits null/undefined params and emits a typed CAST NULL', () => {
@@ -18,5 +22,25 @@ describe('sqlParamOrNull', () => {
     expect(sqlParamOrNull(params, 'rows_in', 8, 'INT64')).toBe('@rows_in');
     expect(sqlParamOrNull(params, 'error_message', 'boom', 'STRING')).toBe('@error_message');
     expect(params).toEqual({ rows_in: 8, error_message: 'boom' });
+  });
+});
+
+describe('quotedJobsByProject', () => {
+  it('templates region from config.location', () => {
+    expect(
+      quotedJobsByProject({
+        project: 'demo-project',
+        location: 'europe-west1',
+        dataset: 'ecom_shill',
+      }),
+    ).toBe('`demo-project.region-europe-west1.INFORMATION_SCHEMA.JOBS_BY_PROJECT`');
+  });
+});
+
+describe('extractJobId', () => {
+  it('returns undefined for missing jobs', () => {
+    expect(extractJobId(undefined)).toBeUndefined();
+    expect(extractJobId(null)).toBeUndefined();
+    expect(extractJobId({})).toBeUndefined();
   });
 });
