@@ -2,7 +2,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertSalt,
+  BrightDataCredentialsError,
   commandRequiresGcp,
+  loadBrightDataBrowserEnv,
   loadDefaultConfig,
   loadEnv,
 } from '../../src/shared/env.js';
@@ -126,9 +128,10 @@ describe('commandRequiresGcp', () => {
     expect(commandRequiresGcp('audit', true)).toBe(false);
   });
 
-  it('is false for crawl and seeds', () => {
+  it('is false for crawl, seeds, and harvest (GCP allow-list)', () => {
     expect(commandRequiresGcp('crawl', false)).toBe(false);
     expect(commandRequiresGcp('seeds', false)).toBe(false);
+    expect(commandRequiresGcp('harvest', false)).toBe(false);
   });
 
   it('is true for load and downstream commands', () => {
@@ -138,6 +141,33 @@ describe('commandRequiresGcp', () => {
     expect(commandRequiresGcp('audit', false)).toBe(true);
     expect(commandRequiresGcp('analyze', false)).toBe(true);
     expect(commandRequiresGcp('report', false)).toBe(true);
+  });
+});
+
+describe('loadBrightDataBrowserEnv', () => {
+  it('reads username and password', () => {
+    const loaded = loadBrightDataBrowserEnv({
+      BRIGHTDATA_BROWSERAPI_USERNAME: 'brd-customer-x-zone-y',
+      BRIGHTDATA_BROWSERAPI_PASSWORD: 'secret',
+    });
+    expect(loaded.username).toBe('brd-customer-x-zone-y');
+    expect(loaded.password).toBe('secret');
+  });
+
+  it('throws when either credential is missing', () => {
+    expect(() => loadBrightDataBrowserEnv({})).toThrow(BrightDataCredentialsError);
+    expect(() =>
+      loadBrightDataBrowserEnv({ BRIGHTDATA_BROWSERAPI_USERNAME: 'user' }),
+    ).toThrow(BrightDataCredentialsError);
+  });
+
+  it('throws when username already ends in -country-xx', () => {
+    expect(() =>
+      loadBrightDataBrowserEnv({
+        BRIGHTDATA_BROWSERAPI_USERNAME: 'user-country-hk',
+        BRIGHTDATA_BROWSERAPI_PASSWORD: 'secret',
+      }),
+    ).toThrow(/country suffix/);
   });
 });
 
