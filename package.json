@@ -37,5 +37,8 @@
     "typescript": "^5.9.0",
     "typescript-eslint": "^8.38.0",
     "vitest": "^3.2.0"
+  },
+  "optionalDependencies": {
+    "playwright-core": "^1.55.0"
   }
 }

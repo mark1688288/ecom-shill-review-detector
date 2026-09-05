@@ -12,6 +12,7 @@ coverage/
 .env.*.local
 
 # pipeline runtime output
+# includes data/harvested/*.jsonl (reviewer_id_raw)
 data/
 reports/
 *.ndjson
