@@ -39,6 +39,23 @@ export type { MakeReviewIdInput } from './crawler/hash.js';
 export type { NormalizedReview, MarketplaceId } from './crawler/adapter.js';
 export { FixtureReviewRaw } from './crawler/types.js';
 export {
+  HKTVMALL_MARKETPLACE_ID,
+  HKTVMALL_REVIEW_TZ,
+  HKTVMALL_WRAPPER_FAILURE_REASONS,
+  HktvmallHarvestContext,
+  HktvmallWrapperReview,
+  extractHktvmallReviewWrappers,
+  hktvmallReviewTs,
+  hktvmallWrapperToFixtureReviewRaw,
+  parseHktvmallProductPath,
+  parseHktvmallReviewPage,
+  parseHktvmallReviewWrapper,
+} from './crawler/harvest/hktvmall.js';
+export type {
+  HktvmallWrapperFailureReason,
+  HktvmallWrapperParseResult,
+} from './crawler/harvest/hktvmall.js';
+export {
   compileLogisticsPattern,
   charLengthBqCompatible,
   strippedCharLength,
