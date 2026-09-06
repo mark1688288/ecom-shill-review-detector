@@ -109,6 +109,28 @@ export class HarvestSessionDroppedError extends Error {
   }
 }
 
+export class ScrapingBeeHttpError extends Error {
+  readonly exitCode = 1;
+  readonly status?: number;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = 'ScrapingBeeHttpError';
+    if (status !== undefined) {
+      this.status = status;
+    }
+  }
+}
+
+export class ScrapingBeeJsScenarioError extends Error {
+  readonly exitCode = 1;
+
+  constructor(message = 'ScrapingBee js_scenario failed') {
+    super(message);
+    this.name = 'ScrapingBeeJsScenarioError';
+  }
+}
+
 export function isTimeoutError(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { name?: string }).name === 'TimeoutError';
 }
