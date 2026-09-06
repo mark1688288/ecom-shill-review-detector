@@ -860,7 +860,7 @@ BRIGHTDATA_BROWSERAPI_PASSWORD=
 
 | class | 何時 |
 | --- | --- |
-| `HarvestTosRequiredError` | live harvest 無 `--i-accept-tos`。訊息含 ToS／robots／當地法律；**不含** `v1 still sends no HTTP` |
+| `HarvestTosRequiredError` | live harvest 無 `--i-accept-tos`。訊息含 ToS／robots／當地法律；**不含** `v1 still sends no HTTP`。**Amendment：** constructor 文案改為運輸無關（「third-party browser or HTML API」）；SoT 見 [`docs/design-scrapingbee-hktvmall-reviews.md`](design-scrapingbee-hktvmall-reviews.md) KD-SB-21。Unit-test 契約不變（`/ToS/`、不含 `v1 still sends no HTTP`） |
 | `BrightDataTosRequiredError` | Phase B live 無 `--i-accept-tos`。同樣不含「no HTTP」。**不**改 `TosRequiredError` |
 | `TosRequiredError` | **僅** `json_api`（含 dry-run）。字串維持現有測試契約 |
 | `BrightDataCredentialsError` | 缺 username／password，或 username 已有 `-country-xx` |

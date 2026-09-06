@@ -132,7 +132,12 @@ export function buildProgram(): Command {
   program
     .command('harvest')
     .description(
-      'Harvest public HKTVmall reviews via Bright Data Browser API to FixtureReviewRaw JSONL. harvest does not create pipeline runs; crawl the JSONL afterwards.',
+      'Harvest public HKTVmall reviews to FixtureReviewRaw JSONL via Bright Data Browser API or ScrapingBee HTML API. harvest does not create pipeline runs; crawl the JSONL afterwards.',
+    )
+    .addOption(
+      new Option('--transport <id>', 'Harvest transport: brightdata (default) | scrapingbee')
+        .choices(['brightdata', 'scrapingbee'])
+        .default('brightdata'),
     )
     .option('--marketplace <id>', 'Marketplace id (H1 only allows hktvmall)', 'hktvmall')
     .option(
@@ -148,11 +153,19 @@ export function buildProgram(): Command {
     .option('--out <jsonl>', 'Output JSONL path (default data/harvested/<YYYYMMDDTHHMMSSZ>-hktvmall.jsonl)')
     .option('--i-accept-tos', 'Required for live harvest (operator evaluated ToS / robots / local law)', false)
     .option('--dry-run', 'Validate URLs and print plan_*; no CDP, no files, no creds, no ToS', false)
-    .option('--country <iso>', 'Browser API country suffix (default HK)', 'HK')
+    .option('--country <iso>', 'ISO country for proxy geo (default HK)', 'HK')
     .option('--max-reviews <n>', 'Cap unique native_review_id across pages')
     .option('--max-pages <n>', 'Max pages to parse per URL (default 20)', '20')
-    .option('--goto-timeout-ms <n>', 'page.goto timeout (default 120000)', '120000')
-    .option('--wrapper-timeout-ms <n>', 'Review-tab click and wrapper wait timeout (default 30000)', '30000')
+    .option(
+      '--goto-timeout-ms <n>',
+      'navigation/API timeout (default 120000; ScrapingBee requires 1000–140000)',
+      '120000',
+    )
+    .option(
+      '--wrapper-timeout-ms <n>',
+      'Bright Data review-tab/wrapper wait (default 30000); ScrapingBee logs only, does not change the 7000ms pager wait',
+      '30000',
+    )
     .option('--strict', 'Fail when any wrapper is rejected (empty harvest always fails)', false)
     .action(harvestAction);
 

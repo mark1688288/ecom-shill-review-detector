@@ -118,6 +118,7 @@ describe('harvest CLI flags', () => {
     expect(harvest).toBeDefined();
     const help = harvest?.helpInformation() ?? '';
     expect(help).toContain('--url');
+    expect(help).toContain('--transport');
     expect(help).toContain('--i-accept-tos');
     expect(help).toContain('--dry-run');
     expect(help).toContain('wrapper');
@@ -153,6 +154,7 @@ describe('runHarvest dry-run', () => {
     expect(existsSync(out)).toBe(false);
     expect(existsSync(`${out}.partial`)).toBe(false);
     const printed = text();
+    expect(printed).toContain('plan_transport=brightdata');
     expect(printed).toContain('plan_marketplace=hktvmall');
     expect(printed).toContain(`plan_url=${VALID_URL}`);
     expect(printed).toContain('plan_store_id=S2090001');
