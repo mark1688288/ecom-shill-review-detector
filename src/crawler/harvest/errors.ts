@@ -15,7 +15,7 @@ export class HarvestTosRequiredError extends Error {
 
   constructor() {
     super(
-      'harvest requires --i-accept-tos (operator must evaluate target ToS / robots / local law). Live harvest uses Bright Data Browser API against a public product page.',
+      'harvest requires --i-accept-tos (operator must evaluate target ToS / robots / local law). Live harvest uses a third-party browser or HTML API against a public product page.',
     );
     this.name = 'HarvestTosRequiredError';
   }

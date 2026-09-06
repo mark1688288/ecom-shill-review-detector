@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
+import { randomInt } from 'node:crypto';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import pino, { type Logger } from 'pino';
-import { loadBrightDataBrowserEnv } from '../../shared/env.js';
+import { loadBrightDataBrowserEnv, loadScrapingBeeEnv } from '../../shared/env.js';
 import type { HarvestPage, HarvestResult } from '../../crawler/harvest/harvest-page.js';
 import type { FixtureReviewRaw } from '../../crawler/types.js';
 import {
@@ -19,7 +20,19 @@ import {
   type HarvestDriverOpts,
 } from '../../crawler/harvest/hktvmall-driver.js';
 import { mergeByNativeReviewId } from '../../crawler/harvest/merge.js';
+import {
+  assertScrapingBeeTimeoutMs,
+  fetchScrapingBeeHtmlPage,
+  type ScrapingBeeHttpGet,
+} from '../../crawler/harvest/scrapingbee-client.js';
+import { harvestHktvmallProductViaScrapingBee } from '../../crawler/harvest/scrapingbee-driver.js';
+import {
+  HKTVMALL_SB_REVIEW_TAB_CSS,
+  HKTVMALL_SB_WRAPPER_CSS,
+} from '../../crawler/harvest/scrapingbee-js-scenario.js';
 import { parseHarvestUrls, type ParsedHarvestUrl } from '../../crawler/harvest/url-list.js';
+
+export type HarvestTransport = 'brightdata' | 'scrapingbee';
 
 export type HarvestConnect = (opts: {
   username: string;
@@ -29,6 +42,7 @@ export type HarvestConnect = (opts: {
 
 export type HarvestCliOptions = {
   marketplace?: string;
+  transport?: string;
   url?: string[];
   urlFile?: string;
   out?: string;
@@ -48,6 +62,7 @@ export type RunHarvestOptions = HarvestCliOptions & {
   now?: Date;
   stdout?: { write(chunk: string): unknown };
   connect?: HarvestConnect;
+  scrapingBeeGet?: ScrapingBeeHttpGet;
   logger?: Logger;
 };
 
@@ -60,6 +75,7 @@ export type HarvestManifest = {
   n_pages: number;
   n_rejected: number;
   stamp: string;
+  transport?: HarvestTransport;
 };
 
 export type HarvestCommandResult = {
@@ -113,6 +129,17 @@ function normalizeCountry(value: string | undefined): string {
   return c.toUpperCase();
 }
 
+function parseHarvestTransport(value: string | undefined): HarvestTransport {
+  const transport = value ?? 'brightdata';
+  if (transport !== 'brightdata' && transport !== 'scrapingbee') {
+    throw new HarvestUsageError(
+      `harvest --transport only supports brightdata|scrapingbee (got ${transport})`,
+      2,
+    );
+  }
+  return transport;
+}
+
 function serializeFixtureJsonl(rows: readonly FixtureReviewRaw[]): string {
   return rows.length === 0 ? '' : `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`;
 }
@@ -138,8 +165,35 @@ function printDryRunPlan(
   stdout: { write(chunk: string): unknown },
   targets: readonly ParsedHarvestUrl[],
   country: string,
+  transport: HarvestTransport,
 ): void {
   for (const target of targets) {
+    if (transport === 'scrapingbee') {
+      stdout.write(`plan_transport=scrapingbee\n`);
+      stdout.write(`plan_marketplace=hktvmall\n`);
+      stdout.write(`plan_url=${target.href}\n`);
+      stdout.write(`plan_store_id=${target.store_id}\n`);
+      stdout.write(`plan_product_id=${target.product_id}\n`);
+      stdout.write(`plan_host=${target.host}\n`);
+      stdout.write(`plan_country=${country.toLowerCase()}\n`);
+      stdout.write(`plan_click=css:${HKTVMALL_SB_REVIEW_TAB_CSS}\n`);
+      stdout.write(`plan_wait=${HKTVMALL_SB_WRAPPER_CSS}\n`);
+      stdout.write(
+        `plan_pager_select=span.total ancestor select (not document.querySelector('select'))\n`,
+      );
+      stdout.write(`plan_paginate=js_scenario evaluate select.value pageIndex\n`);
+      stdout.write(`plan_forbidden_locator=a.next-btn first-match\n`);
+      stdout.write(`plan_render_js=true\n`);
+      stdout.write(`plan_premium_proxy=true\n`);
+      stdout.write(`plan_block_resources=false\n`);
+      stdout.write(`plan_json_response=true\n`);
+      stdout.write(`plan_screenshot=false\n`);
+      stdout.write(`plan_locale_path=/hktv/zh/\n`);
+      stdout.write(`plan_connect=no\n`);
+      stdout.write(`plan_http=no\n`);
+      continue;
+    }
+    stdout.write(`plan_transport=brightdata\n`);
     stdout.write(`plan_marketplace=hktvmall\n`);
     stdout.write(`plan_url=${target.href}\n`);
     stdout.write(`plan_store_id=${target.store_id}\n`);
@@ -162,6 +216,12 @@ function nDedupedFromResult(result: HarvestResult): number {
   return n > 0 ? n : 0;
 }
 
+type HarvestedUrl = {
+  result: HarvestResult;
+  n_http_requests?: number;
+  scrapingbee_credits?: number | null;
+};
+
 export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestCommandResult> {
   const marketplace = opts.marketplace ?? 'hktvmall';
   if (marketplace !== 'hktvmall') {
@@ -171,6 +231,7 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
     );
   }
 
+  const transport = parseHarvestTransport(opts.transport);
   const dryRun = opts.dryRun === true;
   const cwd = opts.cwd ?? process.cwd();
   const env = opts.env ?? process.env;
@@ -184,6 +245,9 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
     '--goto-timeout-ms',
     DEFAULT_GOTO_TIMEOUT_MS,
   );
+  if (transport === 'scrapingbee') {
+    assertScrapingBeeTimeoutMs(gotoTimeoutMs);
+  }
   const wrapperTimeoutMs = parsePositiveInt(
     opts.wrapperTimeoutMs,
     '--wrapper-timeout-ms',
@@ -222,9 +286,10 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
   });
 
   if (dryRun) {
-    printDryRunPlan(stdout, targets, country);
+    printDryRunPlan(stdout, targets, country, transport);
     logger.info({
       event: 'harvest_plan',
+      transport,
       store_id: targets[0]?.store_id,
       product_id: targets[0]?.product_id,
       country: country.toLowerCase(),
@@ -238,8 +303,11 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
     throw new HarvestTosRequiredError();
   }
 
-  const creds = loadBrightDataBrowserEnv(env);
-  const connectFn = opts.connect ?? defaultConnect();
+  const scrapingBeeApiKey =
+    transport === 'scrapingbee' ? loadScrapingBeeEnv(env).apiKey : undefined;
+  const brightDataCreds =
+    transport === 'brightdata' ? loadBrightDataBrowserEnv(env) : undefined;
+  const connectFn = transport === 'brightdata' ? (opts.connect ?? defaultConnect()) : undefined;
   const driverOpts: HarvestDriverOpts = {
     gotoTimeoutMs,
     wrapperTimeoutMs,
@@ -249,12 +317,20 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
 
   logger.info({
     event: 'harvest_started',
+    transport,
     marketplace: 'hktvmall',
     n_urls: targets.length,
     country: country.toLowerCase(),
     max_pages: maxPages,
     ...(maxReviews === undefined ? {} : { max_reviews: maxReviews }),
   });
+  if (transport === 'scrapingbee') {
+    logger.debug({
+      event: 'wrapper_timeout_ms_ignored',
+      wrapper_timeout_ms: wrapperTimeoutMs,
+      transport,
+    });
+  }
 
   const merged: FixtureReviewRaw[] = [];
   let n_pages = 0;
@@ -262,6 +338,9 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
   let n_rejected = 0;
   let n_deduped = 0;
   let n_urls_ok = 0;
+  let n_http_requests = 0;
+  let scrapingbeeCreditsSum = 0;
+  let sawScrapingBeeCredits = false;
 
   const writeFailManifest = async (failedUrl: string): Promise<void> => {
     const { rows, n_deduped: mergedDeduped } = mergeByNativeReviewId(merged);
@@ -275,10 +354,12 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
       n_pages,
       n_rejected,
       stamp,
+      transport,
     };
     await writeUtf8(manifestPath, `${JSON.stringify(manifest)}\n`);
     logger.info({
       event: 'harvest_finished',
+      transport,
       n_urls: targets.length,
       n_urls_ok,
       n_pages,
@@ -288,67 +369,97 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
       n_deduped: n_deduped + mergedDeduped,
       out_path: outPath,
       ok: false,
+      ...(transport === 'scrapingbee' ? { n_http_requests } : {}),
+      ...(sawScrapingBeeCredits ? { scrapingbee_credits: scrapingbeeCreditsSum } : {}),
     });
   };
 
   for (const target of targets) {
-    let session: { page: HarvestPage; close: () => Promise<void> } | undefined;
     try {
-      session = await connectFn({
-        username: creds.username,
-        password: creds.password,
-        country,
-      });
-      const result = await harvestHktvmallProductPage(session.page, target.href, driverOpts);
-      const urlDeduped = nDedupedFromResult(result);
-      n_pages += result.n_pages;
-      n_wrappers += result.n_wrappers;
-      n_rejected += result.rejected.length;
+      const harvested =
+        transport === 'scrapingbee'
+          ? await harvestOneScrapingBeeUrl({
+              href: target.href,
+              apiKey: scrapingBeeApiKey ?? '',
+              country: country.toLowerCase(),
+              gotoTimeoutMs,
+              wrapperTimeoutMs,
+              maxPages,
+              maxReviews,
+              httpGet: opts.scrapingBeeGet,
+            })
+          : await harvestOneBrightDataUrl({
+              href: target.href,
+              creds: brightDataCreds ?? { username: '', password: '' },
+              country,
+              connectFn: connectFn ?? defaultConnect(),
+              driverOpts,
+              logger,
+            });
+      const urlDeduped = nDedupedFromResult(harvested.result);
+      n_pages += harvested.result.n_pages;
+      n_wrappers += harvested.result.n_wrappers;
+      n_rejected += harvested.result.rejected.length;
       n_deduped += urlDeduped;
-      merged.push(...result.accepted);
+      merged.push(...harvested.result.accepted);
       n_urls_ok += 1;
+      if (harvested.n_http_requests !== undefined) {
+        n_http_requests += harvested.n_http_requests;
+      }
+      if (harvested.scrapingbee_credits !== undefined && harvested.scrapingbee_credits !== null) {
+        scrapingbeeCreditsSum += harvested.scrapingbee_credits;
+        sawScrapingBeeCredits = true;
+      }
 
-      for (const row of result.rejected) {
+      for (const row of harvested.result.rejected) {
         logger.debug({ event: 'harvest_wrapper_rejected', reason: row.reason });
       }
       logger.info({
         event: 'harvest_url_done',
-        store_id: result.store_id,
-        product_id: result.product_id,
-        n_pages: result.n_pages,
-        n_wrappers: result.n_wrappers,
-        n_accepted: result.accepted.length,
-        n_rejected: result.rejected.length,
+        transport,
+        store_id: harvested.result.store_id,
+        product_id: harvested.result.product_id,
+        n_pages: harvested.result.n_pages,
+        n_wrappers: harvested.result.n_wrappers,
+        n_accepted: harvested.result.accepted.length,
+        n_rejected: harvested.result.rejected.length,
         n_deduped: urlDeduped,
-        ...(result.n_declared_reviews === null
+        ...(harvested.result.n_declared_reviews === null
           ? {}
-          : { n_declared_reviews: result.n_declared_reviews }),
-        stopped_reason: result.stopped_reason,
-        latency_ms_goto: result.latency_ms_goto,
-        latency_ms_click: result.latency_ms_click,
-        latency_ms_total: result.latency_ms_total,
+          : { n_declared_reviews: harvested.result.n_declared_reviews }),
+        stopped_reason: harvested.result.stopped_reason,
+        latency_ms_goto: harvested.result.latency_ms_goto,
+        latency_ms_click: harvested.result.latency_ms_click,
+        latency_ms_total: harvested.result.latency_ms_total,
+        ...(harvested.n_http_requests === undefined
+          ? {}
+          : { n_http_requests: harvested.n_http_requests }),
+        ...(harvested.scrapingbee_credits === undefined || harvested.scrapingbee_credits === null
+          ? {}
+          : { scrapingbee_credits: harvested.scrapingbee_credits }),
       });
-      if (result.stopped_reason === 'max_pages') {
+      if (harvested.result.stopped_reason === 'max_pages') {
         logger.warn({
           event: 'harvest_max_pages',
-          n_pages: result.n_pages,
+          n_pages: harvested.result.n_pages,
           max_pages: maxPages,
-          store_id: result.store_id,
-          product_id: result.product_id,
+          store_id: harvested.result.store_id,
+          product_id: harvested.result.product_id,
         });
       }
       const incomplete =
-        result.stopped_reason === 'unchanged_ids' ||
-        (result.n_declared_reviews !== null && result.accepted.length < result.n_declared_reviews);
+        harvested.result.stopped_reason === 'unchanged_ids' ||
+        (harvested.result.n_declared_reviews !== null &&
+          harvested.result.accepted.length < harvested.result.n_declared_reviews);
       if (incomplete) {
         logger.warn({
           event: 'harvest_incomplete_pages',
-          n_accepted: result.accepted.length,
-          ...(result.n_declared_reviews === null
+          n_accepted: harvested.result.accepted.length,
+          ...(harvested.result.n_declared_reviews === null
             ? {}
-            : { n_declared_reviews: result.n_declared_reviews }),
-          n_pages: result.n_pages,
-          stopped_reason: result.stopped_reason,
+            : { n_declared_reviews: harvested.result.n_declared_reviews }),
+          n_pages: harvested.result.n_pages,
+          stopped_reason: harvested.result.stopped_reason,
         });
       }
 
@@ -358,6 +469,7 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
       if (err instanceof UnhydratedReviewPageError) {
         logger.error({
           event: 'harvest_unhydrated',
+          transport,
           store_id: target.store_id,
           product_id: target.product_id,
           wait_ms: err.wait_ms,
@@ -369,17 +481,6 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
         // Preserve the harvest error even if sidecar write fails.
       }
       throw err;
-    } finally {
-      if (session !== undefined) {
-        let closedOk = false;
-        try {
-          await session.close();
-          closedOk = true;
-        } catch {
-          closedOk = false;
-        }
-        logger.info({ event: 'harvest_browser_closed', ok: closedOk });
-      }
     }
   }
 
@@ -396,6 +497,7 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
     n_pages,
     n_rejected,
     stamp,
+    transport,
   };
   await writeUtf8(manifestPath, `${JSON.stringify(manifest)}\n`);
 
@@ -406,6 +508,7 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
   stdout.write(`out=${outPath}\n`);
   logger.info({
     event: 'harvest_finished',
+    transport,
     n_urls: targets.length,
     n_urls_ok,
     n_pages,
@@ -415,6 +518,8 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
     n_deduped: totalDeduped,
     out_path: outPath,
     ok: true,
+    ...(transport === 'scrapingbee' ? { n_http_requests } : {}),
+    ...(sawScrapingBeeCredits ? { scrapingbee_credits: scrapingbeeCreditsSum } : {}),
   });
 
   const exitCode = opts.strict === true && n_rejected > 0 ? 1 : 0;
@@ -433,6 +538,70 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
     n_rejected,
     n_deduped: totalDeduped,
     samples: rows.slice(0, 3),
+  };
+}
+
+async function harvestOneBrightDataUrl(opts: {
+  href: string;
+  creds: { username: string; password: string };
+  country: string;
+  connectFn: HarvestConnect;
+  driverOpts: HarvestDriverOpts;
+  logger: Logger;
+}): Promise<HarvestedUrl> {
+  let session: { page: HarvestPage; close: () => Promise<void> } | undefined;
+  try {
+    session = await opts.connectFn({
+      username: opts.creds.username,
+      password: opts.creds.password,
+      country: opts.country,
+    });
+    const result = await harvestHktvmallProductPage(session.page, opts.href, opts.driverOpts);
+    return { result };
+  } finally {
+    if (session !== undefined) {
+      let closedOk = false;
+      try {
+        await session.close();
+        closedOk = true;
+      } catch {
+        closedOk = false;
+      }
+      opts.logger.info({ event: 'harvest_browser_closed', ok: closedOk });
+    }
+  }
+}
+
+async function harvestOneScrapingBeeUrl(opts: {
+  href: string;
+  apiKey: string;
+  country: string;
+  gotoTimeoutMs: number;
+  wrapperTimeoutMs: number;
+  maxPages: number;
+  maxReviews: number | undefined;
+  httpGet: ScrapingBeeHttpGet | undefined;
+}): Promise<HarvestedUrl> {
+  const sessionId = randomInt(0, 10_000_001);
+  const harvested = await harvestHktvmallProductViaScrapingBee(opts.href, {
+    fetchPage: async (pageIndex) =>
+      fetchScrapingBeeHtmlPage({
+        apiKey: opts.apiKey,
+        targetUrl: opts.href,
+        countryCode: opts.country,
+        timeoutMs: opts.gotoTimeoutMs,
+        sessionId,
+        pageIndex,
+        ...(opts.httpGet === undefined ? {} : { httpGet: opts.httpGet }),
+      }),
+    maxPages: opts.maxPages,
+    wrapperTimeoutMs: opts.wrapperTimeoutMs,
+    ...(opts.maxReviews === undefined ? {} : { maxReviews: opts.maxReviews }),
+  });
+  return {
+    result: harvested,
+    n_http_requests: harvested.n_http_requests,
+    scrapingbee_credits: harvested.scrapingbee_credits,
   };
 }
 
