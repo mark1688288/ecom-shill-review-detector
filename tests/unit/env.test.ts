@@ -7,6 +7,8 @@ import {
   loadBrightDataBrowserEnv,
   loadDefaultConfig,
   loadEnv,
+  loadScrapingBeeEnv,
+  ScrapingBeeCredentialsError,
 } from '../../src/shared/env.js';
 
 const VALID_SALT = '0123456789abcdef';
@@ -168,6 +170,25 @@ describe('loadBrightDataBrowserEnv', () => {
         BRIGHTDATA_BROWSERAPI_PASSWORD: 'secret',
       }),
     ).toThrow(/country suffix/);
+  });
+});
+
+describe('loadScrapingBeeEnv', () => {
+  it('reads SCRAPINGBEE_API_KEY', () => {
+    expect(loadScrapingBeeEnv({ SCRAPINGBEE_API_KEY: 'sb-live-key' }).apiKey).toBe('sb-live-key');
+  });
+
+  it('rejects a missing or empty key', () => {
+    expect(() => loadScrapingBeeEnv({})).toThrow(ScrapingBeeCredentialsError);
+    expect(() => loadScrapingBeeEnv({ SCRAPINGBEE_API_KEY: '' })).toThrow(
+      ScrapingBeeCredentialsError,
+    );
+  });
+
+  it('rejects the YOUR_API_KEY placeholder', () => {
+    expect(() => loadScrapingBeeEnv({ SCRAPINGBEE_API_KEY: 'YOUR_API_KEY' })).toThrow(
+      ScrapingBeeCredentialsError,
+    );
   });
 });
 

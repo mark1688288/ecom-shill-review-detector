@@ -183,6 +183,25 @@ export function loadBrightDataBrowserEnv(
   return { username, password };
 }
 
+export class ScrapingBeeCredentialsError extends Error {
+  readonly exitCode = 1;
+
+  constructor(
+    message = 'SCRAPINGBEE_API_KEY is required for --transport scrapingbee live harvest',
+  ) {
+    super(message);
+    this.name = 'ScrapingBeeCredentialsError';
+  }
+}
+
+export function loadScrapingBeeEnv(env: NodeJS.ProcessEnv = process.env): { apiKey: string } {
+  const apiKey = env['SCRAPINGBEE_API_KEY'];
+  if (apiKey === undefined || apiKey === '' || apiKey === 'YOUR_API_KEY') {
+    throw new ScrapingBeeCredentialsError();
+  }
+  return { apiKey };
+}
+
 export type LoadEnvOptions = {
   command: CommandName;
   dryRun?: boolean;
