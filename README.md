@@ -6,7 +6,7 @@ Licensed under [GNU GPL-3.0-only](LICENSE). New source files carry `SPDX-License
 
 v1 是 **fixture-first**：用 JSONL 重放評論。不實作 live marketplace crawler，也不對商店做公開指控。
 
-完整架構見 [`docs/design.md`](docs/design.md)。HKTVmall 公開評論擷取（`ecom-shill harvest`，Bright Data Browser API）見 [`docs/design-bright-data-scrapping-pro-browser-hktvmall.md`](docs/design-bright-data-scrapping-pro-browser-hktvmall.md)。
+完整架構見 [`docs/design.md`](docs/design.md)。HKTVmall 公開評論擷取（`ecom-shill harvest`）見 [`docs/design-bright-data-scrapping-pro-browser-hktvmall.md`](docs/design-bright-data-scrapping-pro-browser-hktvmall.md)（預設 Bright Data Browser API）同 [`docs/design-scrapingbee-hktvmall-reviews.md`](docs/design-scrapingbee-hktvmall-reviews.md)（`--transport scrapingbee`）。
 
 ## 需求
 
@@ -70,26 +70,31 @@ pnpm cli -- report --continue-latest --format markdown --dot
 
 ## Harvest（操作者明示；CI 唔跑 live）
 
-`ecom-shill harvest` 用 Bright Data Browser API 喺公開 HKTVmall `/hktv/zh/` 商品頁撳「評論」、翻頁，寫 `FixtureReviewRaw` JSONL。之後仍然走 `crawl --adapter fixture --input <jsonl>`。`harvest` **唔**建立 `pipeline_runs`，**唔**走 `addRunFlags`。
+`ecom-shill harvest` 喺公開 HKTVmall `/hktv/zh/` 商品頁撳「評論」、翻頁，寫 `FixtureReviewRaw` JSONL。之後仍然走 `crawl --adapter fixture --input <jsonl>`。`harvest` **唔**建立 `pipeline_runs`，**唔**走 `addRunFlags`。
 
-`--dry-run` 只驗證 URL 同印 `plan_*`：**唔**連 CDP、唔要 creds、唔要 `--i-accept-tos`、唔寫 `--out`。真正 scrape 先要 `--i-accept-tos` 同 `BRIGHTDATA_BROWSERAPI_USERNAME` / `BRIGHTDATA_BROWSERAPI_PASSWORD`。
+預設 `--transport brightdata`（Bright Data Browser API）。`--transport scrapingbee` 改走 ScrapingBee HTML API（每評論頁一次 GET；**唔**用 Playwright）。設計見 [`docs/design-bright-data-scrapping-pro-browser-hktvmall.md`](docs/design-bright-data-scrapping-pro-browser-hktvmall.md) 同 [`docs/design-scrapingbee-hktvmall-reviews.md`](docs/design-scrapingbee-hktvmall-reviews.md)。
+
+`--dry-run` 只驗證 URL 同印 `plan_*`：**唔**連 CDP／HTML API、唔要 creds、唔要 `--i-accept-tos`、唔寫 `--out`。真正 scrape 先要 `--i-accept-tos`。`brightdata` 要 `BRIGHTDATA_BROWSERAPI_USERNAME` / `BRIGHTDATA_BROWSERAPI_PASSWORD`；`scrapingbee` 只要非 `YOUR_API_KEY` 嘅 `SCRAPINGBEE_API_KEY`（唔要 Bright Data creds）。
 
 ```bash
 pnpm cli -- harvest --dry-run --url https://www.hktvmall.com/hktv/zh/main/Store/s/S2090001/cat/p/S2090001_S_4000412
+pnpm cli -- harvest --transport scrapingbee --dry-run --url <public-product-url>
 
 pnpm cli -- harvest --url <public-product-url> --i-accept-tos --out data/harvested/batch.jsonl
+pnpm cli -- harvest --transport scrapingbee --url <public-product-url> --i-accept-tos --out data/harvested/batch.jsonl
 pnpm cli -- crawl --adapter fixture --input data/harvested/batch.jsonl --dry-run
 ```
 
 只把 sidecar `ok: true` 嘅 `--out` JSONL 餵給 crawl；**唔好** crawl `.partial`。Harvest JSONL 含 `reviewer_id_raw`，唔好 commit（`data/` 已 gitignore）。
 
-Live 測試（本機 opt-in；CI 永不設呢啲變數；測試檔唔 hardcode 商店 URL）：
+Live 測試（本機 opt-in；CI 永不設呢啲變數；測試檔唔 hardcode 商店 URL）。兩條閘獨立：Bright Data 讀 `HARVEST_LIVE=1`；ScrapingBee 讀 `SCRAPINGBEE_LIVE=1`，**唔**讀 `HARVEST_LIVE`。
 
 ```bash
 HARVEST_LIVE=1 HARVEST_LIVE_URL=https://www.hktvmall.com/... pnpm test
+SCRAPINGBEE_LIVE=1 HARVEST_LIVE_URL=https://www.hktvmall.com/... pnpm test
 ```
 
-`HARVEST_LIVE_URL` 由操作者填。缺 URL／creds 時 skip，唔 fail。`--no-optional` 唔支援 typecheck／live harvest（需要 `playwright-core` optionalDependency：`pnpm install`）。
+`HARVEST_LIVE_URL` 由操作者填。缺 URL／creds 時 skip，唔 fail。`SCRAPINGBEE_API_KEY=YOUR_API_KEY` 當缺席。`--no-optional` 唔支援 typecheck／Bright Data live harvest（需要 `playwright-core` optionalDependency：`pnpm install`）；ScrapingBee 路徑零 Playwright。
 
 ## Layer 2 種子句（`v0_hypothesis`）
 
