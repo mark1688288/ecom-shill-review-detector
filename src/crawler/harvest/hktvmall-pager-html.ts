@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-import { HKTVMALL_DECLARED_REVIEWS_RE, HKTVMALL_PAGE_TOTAL_RE } from './hktvmall-driver.js';
+import {
+  HKTVMALL_DECLARED_REVIEWS_RE,
+  HKTVMALL_PAGE_TOTAL_RE,
+  maxPageTotalFromText,
+} from './hktvmall-driver.js';
 
 const COMMENT_COUNT_RE =
   /<span\b[^>]*\bclass="[^"]*\bcomment__count\b[^"]*"[^>]*>\s*(\d+)\s*</i;
@@ -26,14 +30,18 @@ export function parseHktvmallDeclaredReviewCount(html: string): number | null {
 
 export function parseHktvmallReviewPageTotal(html: string): number | null {
   TOTAL_SPAN_RE.lastIndex = 0;
+  let max: number | null = null;
   let span = TOTAL_SPAN_RE.exec(html);
   while (span !== null) {
     const inner = span[1] ?? '';
     const fromSpan = parseNonNegativeIntCapture(HKTVMALL_PAGE_TOTAL_RE.exec(inner));
-    if (fromSpan !== null) {
-      return fromSpan;
+    if (fromSpan !== null && (max === null || fromSpan > max)) {
+      max = fromSpan;
     }
     span = TOTAL_SPAN_RE.exec(html);
   }
-  return parseNonNegativeIntCapture(HKTVMALL_PAGE_TOTAL_RE.exec(html));
+  if (max !== null) {
+    return max;
+  }
+  return maxPageTotalFromText(html.replace(/<[^>]+>/g, ' '));
 }

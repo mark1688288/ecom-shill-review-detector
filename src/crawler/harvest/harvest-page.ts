@@ -3,7 +3,7 @@ import type { FixtureReviewRaw } from '../types.js';
 import type { HktvmallWrapperFailureReason } from './hktvmall.js';
 
 export type HarvestLocator = {
-  click(opts?: { timeout?: number }): Promise<void>;
+  click(opts?: { timeout?: number; force?: boolean }): Promise<void>;
   count(): Promise<number>;
   getAttribute(name: string): Promise<string | null>;
   first(): HarvestLocator;
