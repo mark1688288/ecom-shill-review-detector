@@ -6,22 +6,13 @@
 -- Cosine *distance* (1 - similarity). Default threshold 0.28 is a hypothesis,
 -- not a CI funnel SLA. Re-run of the same pipeline_run_id must DELETE first.
 
+DELETE FROM `ecom_shill.layer2_distance_audit`
+WHERE pipeline_run_id = @pipeline_run_id;
+
 DELETE FROM `ecom_shill.stage2_suspicious_for_gemini`
 WHERE pipeline_run_id = @pipeline_run_id;
 
-INSERT INTO `ecom_shill.stage2_suspicious_for_gemini` (
-  pipeline_run_id,
-  review_id,
-  store_id,
-  product_id,
-  comment_text,
-  review_ts,
-  matched_seed_id,
-  matched_seed_category,
-  min_cosine_distance,
-  min_cosine_similarity,
-  threshold
-)
+CREATE TEMP TABLE _ranked AS
 WITH dist AS (
   SELECT
     r.review_id,
@@ -54,6 +45,46 @@ ranked AS (
     ROW_NUMBER() OVER (PARTITION BY review_id ORDER BY cosine_distance ASC, seed_id ASC) AS rn
   FROM dist
 )
+SELECT * FROM ranked WHERE rn = 1;
+
+INSERT INTO `ecom_shill.layer2_distance_audit` (
+  pipeline_run_id,
+  review_id,
+  store_id,
+  product_id,
+  matched_seed_id,
+  matched_seed_category,
+  min_cosine_distance,
+  min_cosine_similarity,
+  threshold,
+  review_ts
+)
+SELECT
+  @pipeline_run_id AS pipeline_run_id,
+  review_id,
+  store_id,
+  product_id,
+  seed_id AS matched_seed_id,
+  category AS matched_seed_category,
+  cosine_distance AS min_cosine_distance,
+  1 - cosine_distance AS min_cosine_similarity,
+  @threshold AS threshold,
+  review_ts
+FROM _ranked;
+
+INSERT INTO `ecom_shill.stage2_suspicious_for_gemini` (
+  pipeline_run_id,
+  review_id,
+  store_id,
+  product_id,
+  comment_text,
+  review_ts,
+  matched_seed_id,
+  matched_seed_category,
+  min_cosine_distance,
+  min_cosine_similarity,
+  threshold
+)
 SELECT
   @pipeline_run_id AS pipeline_run_id,
   review_id,
@@ -66,6 +97,5 @@ SELECT
   cosine_distance AS min_cosine_distance,
   1 - cosine_distance AS min_cosine_similarity,
   @threshold AS threshold
-FROM ranked
-WHERE rn = 1
-  AND cosine_distance <= @threshold;
+FROM _ranked
+WHERE cosine_distance <= @threshold;

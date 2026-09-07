@@ -58,6 +58,15 @@ function stripSqlComments(sql: string): string {
     .join('\n');
 }
 
+function insertIntoBlock(sql: string, table: string): string {
+  const marker = `INSERT INTO \`ecom_shill.${table}\``;
+  const start = sql.indexOf(marker);
+  expect(start, `missing ${marker}`).toBeGreaterThanOrEqual(0);
+  const from = start + marker.length;
+  const nextRel = sql.slice(from).search(/INSERT INTO /);
+  return nextRel === -1 ? sql.slice(start) : sql.slice(start, from + nextRel);
+}
+
 function assertNoForbiddenMl(sql: string): void {
   const body = stripSqlComments(sql);
   expect(body).not.toMatch(/ML\.GENERATE_TEXT_EMBEDDING/i);
@@ -127,6 +136,15 @@ describe('Layer 2 DDL', () => {
     expect(stage2).toContain("phase = 'layer2'");
   });
 
+  it('ships layer2_distance_audit without comment_text', () => {
+    const audit = readSql('sql/ddl/09b_layer2_distance_audit.sql');
+    expect(audit).toContain('CREATE TABLE IF NOT EXISTS `ecom_shill.layer2_distance_audit`');
+    expect(audit).toContain('PRIMARY KEY (pipeline_run_id, review_id) NOT ENFORCED');
+    expect(audit).toContain('PARTITION BY DATE(review_ts)');
+    expect(audit).toContain('CLUSTER BY pipeline_run_id, store_id');
+    expect(audit).not.toMatch(/comment_text/);
+  });
+
   it('ships a Vertex remote-model DDL with placeholders and a 404 stop', () => {
     const remote = readSql('sql/ddl/06_remote_models.sql');
     expect(existsSync(path.join(ROOT, 'sql/ddl/06_remote_models.sql'))).toBe(true);
@@ -193,11 +211,13 @@ describe('Layer 2 SQL jobs (files only; CI does not run ML)', () => {
   });
 
   it('rebuilds stage2 per pipeline_run_id using cosine distance <= @threshold', () => {
+    expect(distance).toMatch(/DELETE FROM `ecom_shill\.layer2_distance_audit`/);
     expect(distance).toMatch(/DELETE FROM `ecom_shill\.stage2_suspicious_for_gemini`/);
     expect(distance).toContain('WHERE pipeline_run_id = @pipeline_run_id');
     expect(distance.indexOf('DELETE FROM')).toBeLessThan(distance.indexOf('INSERT INTO'));
     expect(distance).toContain("ML.DISTANCE(r.embedding, se.embedding, 'COSINE')");
-    expect(distance).toContain('AND cosine_distance <= @threshold');
+    expect(stripSqlComments(distance).match(/ML\.DISTANCE/gi)).toHaveLength(1);
+    expect(distance).toContain('CREATE TEMP TABLE _ranked');
     expect(distance).toContain(
       'ROW_NUMBER() OVER (PARTITION BY review_id ORDER BY cosine_distance ASC, seed_id ASC)',
     );
@@ -205,6 +225,30 @@ describe('Layer 2 SQL jobs (files only; CI does not run ML)', () => {
     expect(distance).toContain("r.status = 'ok'");
     expect(distance).not.toMatch(/CREATE OR REPLACE TABLE/i);
     assertNoForbiddenMl(distance);
+
+    const auditInsert = insertIntoBlock(distance, 'layer2_distance_audit');
+    const stage2Insert = insertIntoBlock(distance, 'stage2_suspicious_for_gemini');
+    expect(auditInsert).not.toMatch(/cosine_distance\s*<=\s*@threshold/);
+    expect(stage2Insert).toContain('WHERE cosine_distance <= @threshold');
+    expect(stage2Insert).toContain('comment_text');
+    expect(auditInsert).not.toMatch(/comment_text/);
+  });
+
+  it('puts in-scope stage1 d > T into distance audit, not stage2', () => {
+    const rankedStart = distance.indexOf('CREATE TEMP TABLE _ranked');
+    const firstInsert = distance.indexOf('INSERT INTO', rankedStart);
+    expect(rankedStart).toBeGreaterThanOrEqual(0);
+    expect(firstInsert).toBeGreaterThan(rankedStart);
+    const ranked = distance.slice(rankedStart, firstInsert);
+    expect(ranked).toMatch(/SELECT \* FROM ranked WHERE rn = 1/);
+    expect(ranked).not.toMatch(/cosine_distance\s*<=\s*@threshold/);
+
+    const auditInsert = insertIntoBlock(distance, 'layer2_distance_audit');
+    const stage2Insert = insertIntoBlock(distance, 'stage2_suspicious_for_gemini');
+    expect(auditInsert).toContain('FROM _ranked');
+    expect(auditInsert).not.toMatch(/cosine_distance\s*<=\s*@threshold/);
+    expect(stage2Insert).toContain('FROM _ranked');
+    expect(stage2Insert).toContain('WHERE cosine_distance <= @threshold');
   });
 });
 
@@ -215,6 +259,7 @@ describe('bq-apply.sh Layer 2', () => {
     expect(script).toContain('07_review_embeddings.sql');
     expect(script).toContain('08_seed_embeddings.sql');
     expect(script).toContain('09_stage2_suspicious.sql');
+    expect(script).toContain('09b_layer2_distance_audit.sql');
     expect(script).toContain('pr_seed_phrases_v0.sql');
     expect(script).toContain('06_remote_models.sql');
     expect(script).toContain('apply_remote_model');
@@ -229,6 +274,12 @@ describe('bq-apply.sh Layer 2', () => {
     );
     expect(script.indexOf('08_seed_embeddings.sql')).toBeLessThan(
       script.indexOf('09_stage2_suspicious.sql'),
+    );
+    expect(script.indexOf('09_stage2_suspicious.sql')).toBeLessThan(
+      script.indexOf('09b_layer2_distance_audit.sql'),
+    );
+    expect(script.indexOf('09b_layer2_distance_audit.sql')).toBeLessThan(
+      script.indexOf('10_gemini_review_assessments.sql'),
     );
     expect(script.indexOf('09_stage2_suspicious.sql')).toBeLessThan(
       script.indexOf('pr_seed_phrases_v0.sql'),
