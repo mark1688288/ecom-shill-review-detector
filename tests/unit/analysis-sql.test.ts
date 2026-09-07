@@ -104,6 +104,12 @@ describe('analysis SQL contracts', () => {
       body.indexOf('AS n_assessed'),
     );
     expect(nAssessed).toContain('review_id IN');
+    const nAssessErrors = body.slice(
+      body.indexOf('gemini_assessment_errors'),
+      body.indexOf('AS n_assess_errors'),
+    );
+    expect(nAssessErrors).toContain('review_id IN');
+    expect(nAssessErrors).toContain('pipeline_run_id = @pipeline_run_id');
     const nRaw = body.slice(body.indexOf('counts AS ('), body.indexOf('AS n_raw'));
     expect(nRaw).toMatch(/COUNT\(\*\) FROM in_scope|raw_reviews[\s\S]*pipeline_run_id = @pipeline_run_id/);
   });
