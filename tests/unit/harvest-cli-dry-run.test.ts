@@ -61,7 +61,8 @@ class MockLocator implements HarvestLocator {
   visible(): HarvestLocator {
     return this;
   }
-  click(): Promise<void> {
+  click(opts?: { timeout?: number; force?: boolean }): Promise<void> {
+    void opts;
     return this.impl.click?.() ?? Promise.resolve();
   }
   count(): Promise<number> {

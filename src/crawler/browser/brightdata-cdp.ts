@@ -51,12 +51,19 @@ class PlaywrightLocatorAdapter implements HarvestLocator {
     return new PlaywrightLocatorAdapter(this.loc.filter({ visible: true }));
   }
 
-  async click(opts?: { timeout?: number }): Promise<void> {
+  async click(opts?: { timeout?: number; force?: boolean }): Promise<void> {
     try {
-      if (opts?.timeout === undefined) {
+      const pwOpts: { timeout?: number; force?: boolean } = {};
+      if (opts?.timeout !== undefined) {
+        pwOpts.timeout = opts.timeout;
+      }
+      if (opts?.force !== undefined) {
+        pwOpts.force = opts.force;
+      }
+      if (Object.keys(pwOpts).length === 0) {
         await this.loc.click();
       } else {
-        await this.loc.click({ timeout: opts.timeout });
+        await this.loc.click(pwOpts);
       }
     } catch (err) {
       if (isTimeoutError(err)) {

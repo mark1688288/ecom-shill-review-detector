@@ -40,7 +40,7 @@ export async function clickReviewTab(page: HarvestPage, timeoutMs: number): Prom
   ];
   for (const loc of candidates) {
     try {
-      await loc.visible().first().click({ timeout: timeoutMs });
+      await loc.visible().first().click({ timeout: timeoutMs, force: true });
       return;
     } catch (err) {
       if (err instanceof HarvestSessionDroppedError) {
@@ -85,6 +85,23 @@ function parsePositiveCapture(match: RegExpExecArray | null): number | null {
   }
   const n = Number(raw);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Body innerText may contain both the review pager (共39頁) and Q&A (共1頁). */
+export function maxPageTotalFromText(text: string): number | null {
+  const re = /共\s*(\d+)\s*頁/g;
+  let max: number | null = null;
+  for (const match of text.matchAll(re)) {
+    const raw = match[1];
+    if (raw === undefined) {
+      continue;
+    }
+    const n = Number(raw);
+    if (Number.isFinite(n) && (max === null || n > max)) {
+      max = n;
+    }
+  }
+  return max;
 }
 
 export async function harvestHktvmallProductPage(
@@ -160,7 +177,7 @@ export async function harvestHktvmallProductPage(
     if (n_declared_reviews === null) {
       n_declared_reviews = parsePositiveCapture(HKTVMALL_DECLARED_REVIEWS_RE.exec(bodyText));
     }
-    const pageTotal = parsePositiveCapture(HKTVMALL_PAGE_TOTAL_RE.exec(bodyText));
+    const pageTotal = maxPageTotalFromText(bodyText);
     if (pageTotal !== null && n_pages >= pageTotal) {
       stopped_reason = 'end';
       break;
@@ -173,7 +190,7 @@ export async function harvestHktvmallProductPage(
     }
 
     const prevIds = [...byId.keys()];
-    await next.click();
+    await next.click({ force: true });
     const gotNew = await page.waitForNewReviewIds(prevIds, WAIT_NEW_REVIEW_IDS_MS);
     if (!gotNew) {
       stopped_reason = 'unchanged_ids';
