@@ -351,9 +351,17 @@ describe('layer1 SQL and scripts', () => {
     expect(filter).not.toMatch(/CREATE OR REPLACE TABLE/i);
     expect(filter).toContain("filter_reason");
     expect(filter).toContain("'pass'");
+    const strippedFrom = filter.indexOf('CREATE TEMP TABLE _stripped');
+    const strippedScan = filter.indexOf('FROM `ecom_shill.raw_reviews` AS r', strippedFrom);
+    expect(strippedFrom).toBeGreaterThanOrEqual(0);
+    expect(strippedScan).toBeGreaterThan(strippedFrom);
+    const strippedPredicate = filter.indexOf('r.pipeline_run_id = @pipeline_run_id', strippedScan);
+    expect(strippedPredicate).toBeGreaterThan(strippedScan);
+    expect(strippedPredicate).toBeGreaterThan(filter.indexOf('DELETE FROM'));
     expect(debug).not.toContain('logistics_canned_phrases');
     expect(debug).not.toContain('ARRAY_AGG');
     expect(debug).toContain('FROM _stripped');
+    expect(debug).not.toContain('raw_reviews');
   });
 
   it('bq-apply.sh appends 03, 04, 05, 05b after 02', async () => {

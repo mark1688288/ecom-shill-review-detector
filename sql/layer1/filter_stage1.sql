@@ -55,7 +55,8 @@ SELECT
     )
   ) AS stripped_char_length
 FROM `ecom_shill.raw_reviews` AS r
-CROSS JOIN _regex AS p;
+CROSS JOIN _regex AS p
+WHERE r.pipeline_run_id = @pipeline_run_id;
 
 INSERT INTO `ecom_shill.stage1_filtered` (
   pipeline_run_id,
