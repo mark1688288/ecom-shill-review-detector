@@ -701,7 +701,7 @@ export function commandRequiresGcp(command: CommandName, dryRun: boolean): boole
 }
 ```
 
-`tests/unit/env.test.ts`：`commandRequiresGcp('harvest', false) === false`；`commandRequiresGcp('seeds', false) === false` 仍成立。
+`tests/unit/env.test.ts`：`commandRequiresGcp('harvest', false) === false`。`seeds --dry-run` 仍 GCP-free；live `seeds` 需要 GCP（PR-09）。
 
 `runHarvest` **不**呼叫 `loadEnv`。`createLogger(process.env['LOG_LEVEL'] ?? 'info')`。非 dry-run 才 `loadBrightDataBrowserEnv(env)`。
 

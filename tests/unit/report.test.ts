@@ -297,7 +297,9 @@ describe('report CLI flags', () => {
     const src = await readFile(path.join(process.cwd(), 'src/cli/main.ts'), 'utf8');
     expect(src).not.toMatch(/notImplemented\('report'\)/);
     expect(src).toContain('reportAction');
-    expect(src).toMatch(/notImplemented\('seeds'\)/);
+    expect(src).not.toMatch(/notImplemented\('seeds'\)/);
+    expect(src).toContain('seedsUpsertAction');
+    expect(src).toContain('seedsCalibrateAction');
   });
 });
 
