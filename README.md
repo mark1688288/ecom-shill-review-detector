@@ -43,7 +43,7 @@ CI **只**保證 TypeScript goldens、mock audit call-count、同 fixture `crawl
 
 `audit` 會對 stage2 打 Gemini Flash（JSON Schema、`p-limit` 8）。CI 用 mock 計 call-count；live Vertex 唔喺 merge gate。`layer2` / `audit` / `analyze` / `report` **禁止新建** `pipeline_runs`（必須 `--pipeline-run-id` 或 `--continue-latest`）。`asia-east1` 沒有 Gemini `generateContent`；BQ / embedding 維持 `GCP_LOCATION`，live audit 設 `GEMINI_LOCATION=global`（或 `asia-southeast1` / `asia-northeast1`）。
 
-`analyze` 按 `pipeline_run_id` DELETE+INSERT 單店水分、burst、跨店 template/embedding 碰撞、edge list 同 `funnel_stats`。`report` 讀分析表寫 markdown/JSON（頂部「統計 ≠ 法律事實」）；`--dot` 另寫 Graphviz。`shill_score>=75` 同 cosine 0.28 一樣是可調預設，不是 SLA。漏斗百分比只寫 `funnel_stats` 同 JSON log；`pct_stage2_of_raw > 0.15` 或 `< 0.01` 會 warn，唔會令 CLI 失敗。BQ job 之後會查 `region-${GCP_LOCATION}.INFORMATION_SCHEMA.JOBS_BY_PROJECT` 並 log `bq_job_bytes`（禁止把區域寫死成 `asia-east1`）。
+`analyze` 按 `pipeline_run_id` DELETE+INSERT 單店水分、burst、跨店 template/embedding 碰撞、edge list 同 `funnel_stats`。`report` 讀分析表寫 markdown/JSON（頂部「統計 ≠ 法律事實」；含 L1/L2/L3 ASCII 分數分佈直方圖）；`--dot` 另寫 Graphviz。`shill_score>=75` 同 cosine 0.28 一樣是可調預設，不是 SLA。漏斗百分比只寫 `funnel_stats` 同 JSON log；`pct_stage2_of_raw > 0.15` 或 `< 0.01` 會 warn，唔會令 CLI 失敗。BQ job 之後會查 `region-${GCP_LOCATION}.INFORMATION_SCHEMA.JOBS_BY_PROJECT` 並 log `bq_job_bytes`（禁止把區域寫死成 `asia-east1`）。
 
 ## Fixture 管線 walkthrough
 

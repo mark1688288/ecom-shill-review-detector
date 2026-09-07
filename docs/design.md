@@ -1713,7 +1713,7 @@ GROUP BY 1, 2, 3;
 
 `ecom-shill report` 產出：
 
-- `reports/<pipeline_run_id>.md`：漏斗、Top 商店 `pct_shill_75`、burst 列表、Top 跨店邊。
+- `reports/<pipeline_run_id>.md`：漏斗、L1/L2/L3 ASCII 分數分佈直方圖（run-level；L1 `exclusion_reason`、L2 `layer2_distance_audit.min_cosine_distance`、L3 `shill_score`）、Top 商店 `pct_shill_75`、burst 列表、Top 跨店邊。
 - `.json`：機器可讀同一內容。
 - 可選 `--dot` → `reports/<id>.dot`（Graphviz：`store_a -- store_b [label=weight]`）。
 
