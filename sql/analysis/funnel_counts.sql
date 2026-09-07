@@ -17,18 +17,26 @@ INSERT INTO `ecom_shill.funnel_stats` (
   pct_stage2_of_stage1,
   computed_at
 )
-WITH counts AS (
+WITH in_scope AS (
+  SELECT review_id
+  FROM `ecom_shill.raw_reviews`
+  WHERE pipeline_run_id = @pipeline_run_id
+),
+counts AS (
   SELECT
-    (SELECT COUNT(*) FROM `ecom_shill.raw_reviews`
-      WHERE pipeline_run_id = @pipeline_run_id) AS n_raw,
+    (SELECT COUNT(*) FROM in_scope) AS n_raw,
     (SELECT COUNT(*) FROM `ecom_shill.stage1_filtered`
-      WHERE pipeline_run_id = @pipeline_run_id) AS n_stage1,
+      WHERE pipeline_run_id = @pipeline_run_id
+        AND review_id IN (SELECT review_id FROM in_scope)) AS n_stage1,
     (SELECT COUNT(*) FROM `ecom_shill.stage2_suspicious_for_gemini`
-      WHERE pipeline_run_id = @pipeline_run_id) AS n_stage2,
+      WHERE pipeline_run_id = @pipeline_run_id
+        AND review_id IN (SELECT review_id FROM in_scope)) AS n_stage2,
     (SELECT COUNT(*) FROM `ecom_shill.gemini_review_assessments`
-      WHERE pipeline_run_id = @pipeline_run_id) AS n_assessed,
+      WHERE pipeline_run_id = @pipeline_run_id
+        AND review_id IN (SELECT review_id FROM in_scope)) AS n_assessed,
     (SELECT COUNT(*) FROM `ecom_shill.gemini_assessment_errors`
-      WHERE pipeline_run_id = @pipeline_run_id) AS n_assess_errors
+      WHERE pipeline_run_id = @pipeline_run_id
+        AND review_id IN (SELECT review_id FROM in_scope)) AS n_assess_errors
 )
 SELECT
   @pipeline_run_id AS pipeline_run_id,

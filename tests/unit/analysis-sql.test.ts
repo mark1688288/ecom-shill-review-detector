@@ -88,10 +88,51 @@ describe('analysis SQL contracts', () => {
     expect(funnel).not.toMatch(/0\.05/);
   });
 
+  it('scopes funnel stage counts to this run raw_reviews review_ids', () => {
+    expect(funnel).toContain('WITH in_scope AS');
+    expect(funnel).toContain('SELECT review_id');
+    expect(funnel).toContain('FROM `ecom_shill.raw_reviews`');
+    expect(funnel).toContain('review_id IN (SELECT review_id FROM in_scope)');
+    expect(funnel).toContain('(SELECT COUNT(*) FROM in_scope) AS n_raw');
+    const body = stripSqlComments(funnel);
+    const nStage1 = body.slice(body.indexOf('stage1_filtered'), body.indexOf('AS n_stage1'));
+    expect(nStage1).toContain('review_id IN');
+    const nStage2 = body.slice(body.indexOf('stage2_suspicious_for_gemini'), body.indexOf('AS n_stage2'));
+    expect(nStage2).toContain('review_id IN');
+    const nAssessed = body.slice(
+      body.indexOf('gemini_review_assessments'),
+      body.indexOf('AS n_assessed'),
+    );
+    expect(nAssessed).toContain('review_id IN');
+    const nAssessErrors = body.slice(
+      body.indexOf('gemini_assessment_errors'),
+      body.indexOf('AS n_assess_errors'),
+    );
+    expect(nAssessErrors).toContain('review_id IN');
+    expect(nAssessErrors).toContain('pipeline_run_id = @pipeline_run_id');
+    const nRaw = body.slice(body.indexOf('counts AS ('), body.indexOf('AS n_raw'));
+    expect(nRaw).toMatch(/COUNT\(\*\) FROM in_scope|raw_reviews[\s\S]*pipeline_run_id = @pipeline_run_id/);
+  });
+
   it('computes pct_shill_75 from shill_score >= @shill_score_threshold', () => {
     expect(storeStats).toContain('COUNTIF(shill_score >= @shill_score_threshold) AS n_shill_75');
     expect(storeStats).toContain('SAFE_DIVIDE(assessed.n_shill_75, assessed.n_assessed) AS pct_shill_75');
     expect(storeStats).toContain('AVG(min_cosine_distance) AS avg_min_seed_distance');
+  });
+
+  it('scopes store stage1/stage2/assessed CTEs to in-scope review_ids', () => {
+    const body = stripSqlComments(storeStats);
+    expect(body).toMatch(
+      /raw AS \(\s*SELECT[\s\S]*?FROM `ecom_shill\.raw_reviews`\s+WHERE pipeline_run_id = @pipeline_run_id/,
+    );
+    const inScope = /review_id IN \(\s*SELECT review_id FROM `ecom_shill\.raw_reviews`\s+WHERE pipeline_run_id = @pipeline_run_id\s*\)/;
+    const stage1 = body.slice(body.indexOf('stage1 AS ('), body.indexOf('stage2 AS ('));
+    expect(stage1).toMatch(inScope);
+    const stage2 = body.slice(body.indexOf('stage2 AS ('), body.indexOf('assessed AS ('));
+    expect(stage2).toMatch(inScope);
+    const assessed = body.slice(body.indexOf('assessed AS ('), body.lastIndexOf('SELECT'));
+    expect(assessed).toMatch(inScope);
+    expect(storeStats).toContain('LEFT JOIN stage1 ON stage1.store_id = raw.store_id');
   });
 
   it('uses sample stddev and the documented burst cutoffs', () => {
