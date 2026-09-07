@@ -41,3 +41,6 @@ jobs:
 
       - name: Fixture crawl dry-run
         run: pnpm cli -- crawl --adapter fixture --input fixtures/reviews/cantonese-mix.jsonl --dry-run
+
+      - name: Seeds upsert dry-run
+        run: pnpm cli -- seeds upsert --input fixtures/seeds/v1_example.jsonl --seed-version v1_example --dry-run

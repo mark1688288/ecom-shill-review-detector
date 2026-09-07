@@ -33,11 +33,12 @@ pnpm typecheck
 pnpm test
 pnpm cli -- --help
 pnpm cli -- crawl --adapter fixture --input fixtures/reviews/cantonese-mix.jsonl --dry-run
+pnpm cli -- seeds upsert --input fixtures/seeds/v1_example.jsonl --seed-version v1_example --dry-run
 ```
 
-Help 必須寫成 `pnpm cli -- --help`（pnpm 把第一個 `--` 當 script 參數分隔）。`seeds` 仍 **exit 2**（`not implemented`）。
+Help 必須寫成 `pnpm cli -- --help`（pnpm 把第一個 `--` 當 script 參數分隔）。`seeds upsert --dry-run` / `seeds calibrate --dry-run` **不**需要 `GCP_*`；live upsert / calibrate 先要 BQ。
 
-CI **只**保證 TypeScript goldens、mock audit call-count、同 fixture `crawl --dry-run`。CI **不**連 GCP、**不**執行 `ML.GENERATE_EMBEDDING`、**不**驗證 SQL 語意，亦 **不斷言** 漏斗 35%/5%。
+CI **只**保證 TypeScript goldens、mock audit call-count、fixture `crawl --dry-run`、同 `seeds upsert --dry-run`。CI **不**連 GCP、**不**執行 `ML.GENERATE_EMBEDDING`、**不**驗證 SQL 語意，亦 **不斷言** 漏斗 35%/5%。
 
 `layer2` 用 BigQuery remote model（ENDPOINT 來自 `EMBEDDING_MODEL`，預設 `text-multilingual-embedding-002`）embed 種子同 stage1，再以 cosine distance ≤ config 門檻寫入 stage2。`CREATE MODEL` 對 multilingual-002 在該區 404 時必須停止，禁止默默改 `text-embedding-004`。
 
@@ -98,7 +99,25 @@ SCRAPINGBEE_LIVE=1 HARVEST_LIVE_URL=https://www.hktvmall.com/... pnpm test
 
 ## Layer 2 種子句（`v0_hypothesis`）
 
-[`sql/seeds/pr_seed_phrases_v0.sql`](sql/seeds/pr_seed_phrases_v0.sql) 的 7 句是 **hypothesis, replaceable**，不是已驗證的「官方 7 大經典」。之後以新 `seed_version` 或 `ecom-shill seeds upsert`（Phase 5）替換。
+[`sql/seeds/pr_seed_phrases_v0.sql`](sql/seeds/pr_seed_phrases_v0.sql) 的 7 句是 **hypothesis, replaceable**，不是已驗證的「官方 7 大經典」。以新 `seed_version` 替換（不要覆寫 v0 列）：
+
+```bash
+# GCP-free 驗證 7 slot
+pnpm cli -- seeds upsert --input fixtures/seeds/v1_example.jsonl --seed-version v1_example --dry-run
+
+# Sandbox：INSERT 新 version，預設停用其他 is_active；然後重跑 embed seeds + distance
+pnpm cli -- seeds upsert --input fixtures/seeds/v1_example.jsonl --seed-version v1_example
+pnpm cli -- layer2 --continue-latest --seed-version v1_example
+```
+
+`--no-activate` 會保留舊 version 的 `is_active`。拒絕 upsert `v0_hypothesis`（由 `sql/seeds/pr_seed_phrases_v0.sql` 擁有）。
+
+門檻校正（人工標 `shill | not_shill | unsure`；sweep `{0.18,0.22,0.25,0.28,0.32,0.38}`）寫 `human_labels` / `calibration_sweep`。CLI **不會**改 `config/default.yaml` 的 0.28：
+
+```bash
+pnpm cli -- seeds calibrate --label-file fixtures/expected/human-labels.example.jsonl --dry-run
+pnpm cli -- seeds calibrate --continue-latest --label-file labels.jsonl
+```
 
 Layer 2 SQL 在 [`sql/layer2/`](sql/layer2/)（embed seeds / embed reviews / cosine distance ≤ config 門檻）。CI **不**執行 `ML.GENERATE_EMBEDDING`（需 Vertex remote model）。
 
