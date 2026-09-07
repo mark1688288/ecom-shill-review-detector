@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS `ecom_shill.layer2_distance_audit` (
   matched_seed_category STRING NOT NULL,
   min_cosine_distance FLOAT64 NOT NULL,
   min_cosine_similarity FLOAT64 NOT NULL,  -- 1 - min_cosine_distance
-  threshold FLOAT64 NOT NULL,              -- Layer 2 that-run T (stage2 cut)
+  threshold FLOAT64 NOT NULL,
   review_ts TIMESTAMP NOT NULL,
   PRIMARY KEY (pipeline_run_id, review_id) NOT ENFORCED
 )
