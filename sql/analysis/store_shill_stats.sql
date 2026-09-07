@@ -37,6 +37,10 @@ stage1 AS (
   SELECT store_id, COUNT(*) AS n_stage1
   FROM `ecom_shill.stage1_filtered`
   WHERE pipeline_run_id = @pipeline_run_id
+    AND review_id IN (
+      SELECT review_id FROM `ecom_shill.raw_reviews`
+      WHERE pipeline_run_id = @pipeline_run_id
+    )
   GROUP BY store_id
 ),
 stage2 AS (
@@ -46,6 +50,10 @@ stage2 AS (
     AVG(min_cosine_distance) AS avg_min_seed_distance
   FROM `ecom_shill.stage2_suspicious_for_gemini`
   WHERE pipeline_run_id = @pipeline_run_id
+    AND review_id IN (
+      SELECT review_id FROM `ecom_shill.raw_reviews`
+      WHERE pipeline_run_id = @pipeline_run_id
+    )
   GROUP BY store_id
 ),
 assessed AS (
@@ -57,6 +65,10 @@ assessed AS (
     APPROX_QUANTILES(shill_score, 100)[OFFSET(50)] AS p50_shill_score
   FROM `ecom_shill.gemini_review_assessments`
   WHERE pipeline_run_id = @pipeline_run_id
+    AND review_id IN (
+      SELECT review_id FROM `ecom_shill.raw_reviews`
+      WHERE pipeline_run_id = @pipeline_run_id
+    )
   GROUP BY store_id
 )
 SELECT
