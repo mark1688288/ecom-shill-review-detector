@@ -6,7 +6,7 @@
 | Document ID | `ecom-shill-bright-data-browser-hktvmall-supplement-v1` |
 | Author | TBD（實作前填入） |
 | Date | 2026-09-05 |
-| Status | **Draft**（rev 4：CDP disconnect ≠ `unchanged_ids`） |
+| Status | **Draft**（rev 5：`force: true` click；`共N頁` 取 max，勿把 Q&A 共1頁當評論總頁） |
 | Repo | `/Users/mark/ecom-shill-review-detector` |
 | Parent | [`docs/design.md`](design.md)（**Accepted**，rev 4）。本文件是補充，**不是**替代。 |
 | Filename | `docs/design-bright-data-scrapping-pro-browser-hktvmall.md` — **scrapping** 為歷史拼字，不改檔名以免斷鏈。正確英文是 scraping。 |
@@ -116,7 +116,7 @@ Probe 過程中，水合後的頁面會向某 comms host 拉評論 JSON。那只
 | KD-BD-08 | 自動化函式庫 | **`playwright-core` `^1.55.0`**（`optionalDependencies`）+ `connectOverCDP`。第一個 PR **不**加 `@brightdata/sdk` | 與 Bright Data SDK Playwright 範例對齊。SDK `scrapeUrl`＝Unlocker。 |
 | KD-BD-09 | `harvest --dry-run` | **只**驗證公開 URL／`parseHktvmallProductPath`、印 `plan_*`，**不** `connectOverCDP`、**不**要求 Browser API creds、**不**寫 `--out` | 連 CDP 就會產生 Bright Data 費用。Dry-run 必須 CI 可跑。 |
 | KD-BD-10 | Geo | 預設 `--country HK` → username 後綴 `-country-hk`。env username 若已符合 `/-country-[a-z]{2}$/i` → 拒絕（不要疊兩次）。 | Probe 用 `country:"HK"`。Bright Data：`-country-<iso>` 接在 USER 之後。 |
-| KD-BD-11 | 評論 DOM | 點 `[data-tab="reviewTab"]`（fallback `li[data-tab="reviewTab"]`、`getByRole('heading', { name: '評論' })`）。每個 candidate `visible().first().click` 包 try/catch；失敗換下一個；全失敗 → `ReviewTabNotFoundError`（含 click timeout／cookie overlay）。然後 `waitForSelector('div.product-review-wrapper')`。 | `data-tab` 語言無關。禁止點「問問大家」。原始 Playwright `TimeoutError` 不得冒成 unhandled。 |
+| KD-BD-11 | 評論 DOM | 點 `[data-tab="reviewTab"]`（fallback `li[data-tab="reviewTab"]`、`getByRole('heading', { name: '評論' })`）。每個 candidate `visible().first().click({ timeout, force: true })` 包 try/catch；失敗換下一個；全失敗 → `ReviewTabNotFoundError`。然後 `waitForSelector('div.product-review-wrapper')`。 | `data-tab` 語言無關。禁止點「問問大家」。Playwright 預設 actionability 會被 overlay 攔截而 timeout（元素 visible 但仍點唔到）。**不**猜 banner 選擇器；`force: true` 繞過 intercept。原始 `TimeoutError` 不得冒成 unhandled。 |
 | KD-BD-12 | 分頁 | 同一 `HarvestPage` 上按 **凍結 locator** 點「下一頁」；`waitForNewReviewIds`（boolean，無 `document`）等新 id；`n_pages` = **已 parse 的頁數**（每成功 parse 後 `+= 1`，再檢查 max／next）。`native_review_id` last-write-wins。H1 只支援 pathname 含 `/hktv/zh/`；**不**用 `/^next$/i`。見「分頁 DOM 契約」。 | 10／頁。第一頁不是母體。禁止猜 `.pagination a.next`。`n_pages` 在 click 後才加會 off-by-one。 |
 | KD-BD-13 | Parser | Driver **只**呼叫匯出函式 `parseHktvmallReviewPage`（內部再叫 wrapper mapper）。禁止 import 檔案 private helper。 | `countFilledStars` 等不是 export，import 會編譯失敗。 |
 | KD-BD-14 | 私有 XHR | **不**當 recipe、**不**進 config、**不**進本文件 URL 清單 | ToS／git 政策。 |
@@ -487,8 +487,8 @@ export async function clickReviewTab(page: HarvestPage, timeoutMs: number): Prom
   ];
   for (const loc of candidates) {
     try {
-      // visible() 避免 hidden duplicate；click timeout（cookie overlay）不得冒成 Playwright TimeoutError
-      await loc.visible().first().click({ timeout: timeoutMs });
+      // visible() 避免 hidden duplicate。force: true：overlay 攔截 pointer 時 actionability 會 timeout。
+      await loc.visible().first().click({ timeout: timeoutMs, force: true });
       return;
     } catch {
       continue;
@@ -506,7 +506,7 @@ waitForSelector('div.product-review-wrapper', { timeout: wrapper_timeout_ms })
 
 預設 `wrapper_timeout_ms = 30_000`。超時 → `UnhydratedReviewPageError`。
 
-**不要**點 Q&A／「問問大家」。Cookie banner 擋住 tab：locator 找不到或 click timeout → `ReviewTabNotFoundError`（第一 PR **不**猜 banner 選擇器）。Tab 點到但 0 wrapper（banner 蓋住列表）→ `UnhydratedReviewPageError`。
+**不要**點 Q&A／「問問大家」。Overlay／cookie banner 擋住 tab：Playwright 非 force click 會 actionability timeout。Harvest 用 `force: true`，**不**猜 banner 選擇器。Tab 全失敗 → `ReviewTabNotFoundError`。Tab 點到但 0 wrapper → `UnhydratedReviewPageError`。
 
 Viewport：`1280x720`。
 
@@ -545,7 +545,7 @@ export async function isNextDisabled(loc: HarvestLocator): Promise<boolean> {
 }
 ```
 
-可見 `body` innerText（同一字串）同時跑 `HKTVMALL_DECLARED_REVIEWS_RE` 與 `HKTVMALL_PAGE_TOTAL_RE`。`n_declared_reviews`：第一個 capture 的 `Number`；失敗 → `null`（不 warn）。**忽略** JSON-LD `numberOfReviews`（probe 為謊言 `0`）。英文 `42 reviews` 第一 PR 不解析。
+可見 `body` innerText（同一字串）同時跑 `HKTVMALL_DECLARED_REVIEWS_RE` 與 **全部** `共N頁`。`n_declared_reviews`：第一個 `則評論` capture 的 `Number`；失敗 → `null`（不 warn）。**總頁取 max**（評論 pager `共39頁` 與 Q&A `共1頁` 同頁；first-match 會提早 `stopped_reason=end`）。**忽略** JSON-LD `numberOfReviews`（probe 為謊言 `0`）。英文 `42 reviews` 第一 PR 不解析。`parseHktvmallReviewPageTotal`（HTML `span.total`）同樣取 max。
 
 等待新頁（禁止只 `waitForLoadState('networkidle')`；禁止在 driver 寫 `document`）：
 
@@ -566,9 +566,9 @@ if (!gotNew) {
 3. **`n_pages += 1`**（此頁已 parse）。
 4. 若 unique accepted 已達 `--max-reviews` → `stopped_reason=max_reviews`，停。
 5. 若 `n_pages >= --max-pages`（預設 **20**）→ `stopped_reason=max_pages`，log `harvest_max_pages`，停（**不會**再 click 出第 21 頁）。
-6. `bodyText = await page.innerText('body')`。`HKTVMALL_PAGE_TOTAL_RE` 若 parse 到總頁 `total` 且 `n_pages >= total` → `stopped_reason=end`，停。
+6. `bodyText = await page.innerText('body')`。`maxPageTotalFromText(bodyText)` 若 parse 到總頁 `total`（**所有** `共N頁` 的 max）且 `n_pages >= total` → `stopped_reason=end`，停。
 7. `next = locateNextPage(page)`。`null` 或 `isNextDisabled(next)` → `stopped_reason=next_disabled`，停。
-8. `next.click()`。`waitForNewReviewIds(prevIds, 15_000)`。
+8. `next.click({ force: true })`。`waitForNewReviewIds(prevIds, 15_000)`。
    - `false` → `stopped_reason=unchanged_ids`，log `harvest_incomplete_pages`，**停、不 throw**（KD-BD-25 stall）。
    - **throw** `HarvestSessionDroppedError` → 該 URL 失敗；**不要**當成 stall；**不要** `ok: true` rename。
 9. 重複從步驟 1（下一頁 HTML）。Driver **不**把 `waitForNewReviewIds` 包進 `catch { false }`。

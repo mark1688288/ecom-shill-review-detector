@@ -2,7 +2,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { HarvestSessionDroppedError } from '../../src/crawler/harvest/errors.js';
 import type { HarvestLocator, HarvestPage } from '../../src/crawler/harvest/harvest-page.js';
-import { harvestHktvmallProductPage } from '../../src/crawler/harvest/hktvmall-driver.js';
+import {
+  harvestHktvmallProductPage,
+  maxPageTotalFromText,
+} from '../../src/crawler/harvest/hktvmall-driver.js';
 import * as hktvmall from '../../src/crawler/harvest/hktvmall.js';
 
 const PRODUCT_URL =
@@ -43,7 +46,7 @@ class MockLocator implements HarvestLocator {
     return this;
   }
 
-  click(opts?: { timeout?: number }): Promise<void> {
+  click(opts?: { timeout?: number; force?: boolean }): Promise<void> {
     void opts;
     return this.impl.click?.() ?? Promise.resolve();
   }
@@ -145,6 +148,12 @@ function makePage(opts: {
     },
   };
 }
+
+describe('maxPageTotalFromText', () => {
+  it('uses the larger review pager when Q&A 共1頁 is also present', () => {
+    expect(maxPageTotalFromText('4.6 (381 則評論)\n/共39頁\n問問大家\n/共1頁')).toBe(39);
+  });
+});
 
 describe('harvestHktvmallProductPage', () => {
   it('parses two pages, unique 20, n_pages === 2, next_disabled', async () => {

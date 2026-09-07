@@ -48,6 +48,12 @@ describe('parseHktvmallDeclaredReviewCount / parseHktvmallReviewPageTotal', () =
     expect(parseHktvmallReviewPageTotal('<span class="total">/共0頁</span>')).toBe(0);
   });
 
+  it('takes max when Q&A 共1頁 appears before the review 共39頁 pager', () => {
+    const html = `<div class="page-controller"><span class="total">/共1頁</span></div>
+<div class="page-nav"><span class="total">/共39頁</span></div>`;
+    expect(parseHktvmallReviewPageTotal(html)).toBe(39);
+  });
+
   it('falls back to 則評論 when comment__count is absent', () => {
     expect(parseHktvmallDeclaredReviewCount('<p>42則評論</p>')).toBe(42);
   });

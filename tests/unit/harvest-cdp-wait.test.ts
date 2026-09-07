@@ -29,6 +29,21 @@ describe('buildBrowserWsEndpoint', () => {
   });
 });
 
+describe('adaptPlaywrightPage.click', () => {
+  it('passes force through to Playwright locator.click', async () => {
+    const calls: unknown[] = [];
+    const page = adaptPlaywrightPage({
+      locator: () => ({
+        click: async (opts?: unknown) => {
+          calls.push(opts);
+        },
+      }),
+    } as never);
+    await page.locator('[data-tab="reviewTab"]').click({ timeout: 30_000, force: true });
+    expect(calls).toEqual([{ timeout: 30_000, force: true }]);
+  });
+});
+
 describe('adaptPlaywrightPage.waitForNewReviewIds', () => {
   it('returns false on Playwright TimeoutError only', async () => {
     const page = adaptPlaywrightPage({
