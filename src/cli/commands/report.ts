@@ -2,7 +2,11 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { BigQuery } from '@google-cloud/bigquery';
+import { SHILL_SCORE_THRESHOLD } from '../../analysis/collisions.js';
 import {
+  binL2Distances,
+  binL3Scores,
+  fillL1HistogramBuckets,
   parseReportFormat,
   renderDot,
   renderJson,
@@ -10,11 +14,14 @@ import {
   resolveReportOutputPaths,
   type BurstEventRow,
   type FunnelStatsRow,
+  type HistogramBucket,
   type NetworkEdgeRow,
   type ReportData,
   type ReportFormat,
+  type ScoreHistograms,
   type StoreShillStatsRow,
 } from '../../analysis/report.js';
+import { isBqNotFoundError } from '../../crawler/persist/bq-load.js';
 import {
   assertBqConfig,
   bqConfigFromGcp,
@@ -106,6 +113,14 @@ function asFloatOrNull(value: unknown, field: string): number | null {
     }
   }
   throw new Error(`report expected float ${field}, got ${String(value)}`);
+}
+
+function asFloat(value: unknown, field: string): number {
+  const n = asFloatOrNull(value, field);
+  if (n === null) {
+    throw new Error(`report expected float ${field}, got ${String(value)}`);
+  }
+  return n;
 }
 
 function asString(value: unknown, field: string): string {
@@ -233,10 +248,136 @@ function parseEdge(row: Record<string, unknown>): NetworkEdgeRow {
   };
 }
 
+function inScopeCte(config: BqConfig): string {
+  return `WITH in_scope AS (
+  SELECT review_id FROM ${quotedTable(config, 'raw_reviews')}
+  WHERE pipeline_run_id = @pipeline_run_id
+)`;
+}
+
+function histogramNotFoundMessage(tableId: string): string {
+  if (tableId === 'layer1_exclusion_audit') {
+    return `${tableId} not found; re-run layer1`;
+  }
+  if (tableId === 'layer2_distance_audit') {
+    return `${tableId} not found; run bq-apply and re-run layer2`;
+  }
+  return `${tableId} not found`;
+}
+
+async function runHistogramQuery(
+  bq: BigQuery,
+  config: BqConfig,
+  tableId: string,
+  query: string,
+  params: Record<string, unknown>,
+): Promise<Record<string, unknown>[]> {
+  try {
+    return await runQuery(bq, config, query, params);
+  } catch (err) {
+    if (isBqNotFoundError(err)) {
+      throw new Error(histogramNotFoundMessage(tableId));
+    }
+    throw err;
+  }
+}
+
+function firstInt(rows: Record<string, unknown>[], field: string): number {
+  const row = rows[0];
+  if (row === undefined) {
+    return 0;
+  }
+  return asInt(row[field], field);
+}
+
+function buildScoreHistograms(input: {
+  nInScope: number;
+  l1Rows: Record<string, unknown>[];
+  l2DistanceRows: Record<string, unknown>[];
+  nNoDistance: number;
+  l3Rows: Record<string, unknown>[];
+  threshold: number;
+  thresholdSource: 'pipeline_runs' | 'config_fallback';
+}): ScoreHistograms {
+  const l1Input: HistogramBucket[] = [];
+  let nRows = 0;
+  for (const row of input.l1Rows) {
+    const n = asInt(row['n'], 'n');
+    nRows += n;
+    l1Input.push({
+      bucket: asString(row['exclusion_reason'], 'exclusion_reason'),
+      n,
+    });
+  }
+  const filledL1 = fillL1HistogramBuckets(l1Input);
+
+  const distances: number[] = [];
+  let nLeThreshold = 0;
+  let nGtThreshold = 0;
+  for (const row of input.l2DistanceRows) {
+    const d = asFloat(row['min_cosine_distance'], 'min_cosine_distance');
+    distances.push(d);
+    if (d >= 0 && d <= input.threshold) {
+      nLeThreshold += 1;
+    } else if (d > input.threshold && d <= 2) {
+      nGtThreshold += 1;
+    }
+  }
+  const binnedL2 = binL2Distances(distances, input.threshold);
+  const layer2Buckets = [...binnedL2.buckets, { bucket: 'no_distance', n: input.nNoDistance }];
+
+  const scores: number[] = [];
+  let nGemini = 0;
+  let nCopied = 0;
+  for (const row of input.l3Rows) {
+    scores.push(asInt(row['shill_score'], 'shill_score'));
+    const source = asString(row['score_source'], 'score_source');
+    if (source === 'gemini') {
+      nGemini += 1;
+    } else if (source === 'copied') {
+      nCopied += 1;
+    }
+  }
+  const binnedL3 = binL3Scores(scores);
+  const nShill75 =
+    binnedL3.buckets.find((bucket) => bucket.bucket === '75-100')?.n ?? 0;
+
+  return {
+    n_in_scope: input.nInScope,
+    layer1: {
+      metric: 'exclusion_reason',
+      buckets: filledL1.buckets,
+      n_rows: nRows,
+      unknown_n: filledL1.unknown_n,
+      coverage_ok: nRows === input.nInScope,
+    },
+    layer2: {
+      metric: 'min_cosine_distance',
+      threshold: input.threshold,
+      threshold_source: input.thresholdSource,
+      buckets: layer2Buckets,
+      n_with_distance: distances.length,
+      n_no_distance: input.nNoDistance,
+      n_le_threshold: nLeThreshold,
+      n_gt_threshold: nGtThreshold,
+    },
+    layer3: {
+      metric: 'shill_score',
+      threshold: SHILL_SCORE_THRESHOLD,
+      buckets: binnedL3.buckets,
+      n_assessed: scores.length,
+      n_gemini: nGemini,
+      n_copied: nCopied,
+      n_shill_75: nShill75,
+    },
+  };
+}
+
 export async function loadReportData(
   bq: BigQuery,
   config: BqConfig,
   pipelineRunId: string,
+  configFallbackThreshold: number,
 ): Promise<ReportData> {
   const funnelRows = await runQuery(
     bq,
@@ -263,10 +404,24 @@ LIMIT 1`,
     );
   }
 
-  const storeRows = await runQuery(
-    bq,
-    config,
-    `SELECT
+  const runParams = { pipeline_run_id: pipelineRunId };
+  const inScope = inScopeCte(config);
+
+  const [
+    storeRows,
+    burstRows,
+    edgeRows,
+    thresholdRows,
+    nInScopeRows,
+    l1Rows,
+    l2DistanceRows,
+    l2NoDistanceRows,
+    l3Rows,
+  ] = await Promise.all([
+    runQuery(
+      bq,
+      config,
+      `SELECT
   store_id,
   marketplace,
   n_raw,
@@ -282,13 +437,12 @@ LIMIT 1`,
 FROM ${quotedTable(config, 'store_shill_stats')}
 WHERE pipeline_run_id = @pipeline_run_id
 ORDER BY pct_shill_75 DESC, n_shill_75 DESC, store_id ASC`,
-    { pipeline_run_id: pipelineRunId },
-  );
-
-  const burstRows = await runQuery(
-    bq,
-    config,
-    `SELECT
+      runParams,
+    ),
+    runQuery(
+      bq,
+      config,
+      `SELECT
   store_id,
   product_id,
   bucket_ts,
@@ -301,13 +455,12 @@ FROM ${quotedTable(config, 'burst_events')}
 WHERE pipeline_run_id = @pipeline_run_id
   AND is_burst = TRUE
 ORDER BY bucket_ts DESC, store_id ASC`,
-    { pipeline_run_id: pipelineRunId },
-  );
-
-  const edgeRows = await runQuery(
-    bq,
-    config,
-    `SELECT
+      runParams,
+    ),
+    runQuery(
+      bq,
+      config,
+      `SELECT
   src_store_id,
   dst_store_id,
   weight,
@@ -315,8 +468,84 @@ ORDER BY bucket_ts DESC, store_id ASC`,
 FROM ${quotedTable(config, 'shill_network_edges')}
 WHERE pipeline_run_id = @pipeline_run_id
 ORDER BY weight DESC, src_store_id ASC, dst_store_id ASC`,
-    { pipeline_run_id: pipelineRunId },
+      runParams,
+    ),
+    runQuery(
+      bq,
+      config,
+      `SELECT cosine_distance_threshold
+FROM ${quotedTable(config, 'pipeline_runs')}
+WHERE pipeline_run_id = @pipeline_run_id
+LIMIT 1`,
+      runParams,
+    ),
+    runHistogramQuery(
+      bq,
+      config,
+      'raw_reviews',
+      `SELECT COUNT(*) AS n_in_scope
+FROM ${quotedTable(config, 'raw_reviews')}
+WHERE pipeline_run_id = @pipeline_run_id`,
+      runParams,
+    ),
+    runHistogramQuery(
+      bq,
+      config,
+      'layer1_exclusion_audit',
+      `${inScope}
+SELECT exclusion_reason, COUNT(*) AS n
+FROM ${quotedTable(config, 'layer1_exclusion_audit')}
+WHERE pipeline_run_id = @pipeline_run_id
+  AND review_id IN (SELECT review_id FROM in_scope)
+GROUP BY exclusion_reason`,
+      runParams,
+    ),
+    runHistogramQuery(
+      bq,
+      config,
+      'layer2_distance_audit',
+      `${inScope}
+SELECT min_cosine_distance
+FROM ${quotedTable(config, 'layer2_distance_audit')} AS d
+WHERE d.pipeline_run_id = @pipeline_run_id
+  AND d.review_id IN (SELECT review_id FROM in_scope)`,
+      runParams,
+    ),
+    runHistogramQuery(
+      bq,
+      config,
+      'layer2_distance_audit',
+      `${inScope}
+SELECT COUNT(*) AS n_no_distance
+FROM ${quotedTable(config, 'stage1_filtered')} AS s
+WHERE s.pipeline_run_id = @pipeline_run_id
+  AND s.review_id IN (SELECT review_id FROM in_scope)
+  AND NOT EXISTS (
+    SELECT 1 FROM ${quotedTable(config, 'layer2_distance_audit')} AS d
+    WHERE d.pipeline_run_id = s.pipeline_run_id
+      AND d.review_id = s.review_id
+  )`,
+      runParams,
+    ),
+    runHistogramQuery(
+      bq,
+      config,
+      'gemini_review_assessments',
+      `${inScope}
+SELECT shill_score, score_source
+FROM ${quotedTable(config, 'gemini_review_assessments')}
+WHERE pipeline_run_id = @pipeline_run_id
+  AND review_id IN (SELECT review_id FROM in_scope)`,
+      runParams,
+    ),
+  ]);
+
+  const fromRun = asFloatOrNull(
+    thresholdRows[0]?.['cosine_distance_threshold'],
+    'cosine_distance_threshold',
   );
+  const threshold = fromRun === null ? configFallbackThreshold : fromRun;
+  const thresholdSource = fromRun === null ? 'config_fallback' : 'pipeline_runs';
 
   return {
     pipeline_run_id: pipelineRunId,
@@ -324,6 +553,15 @@ ORDER BY weight DESC, src_store_id ASC, dst_store_id ASC`,
     stores: storeRows.map(parseStore),
     bursts: burstRows.map(parseBurst),
     edges: edgeRows.map(parseEdge),
+    score_histograms: buildScoreHistograms({
+      nInScope: firstInt(nInScopeRows, 'n_in_scope'),
+      l1Rows,
+      l2DistanceRows,
+      nNoDistance: firstInt(l2NoDistanceRows, 'n_no_distance'),
+      l3Rows,
+      threshold,
+      thresholdSource,
+    }),
   };
 }
 
@@ -351,7 +589,12 @@ export async function runReport(opts: RunReportOptions): Promise<ReportCommandRe
   const format = parseReportFormat(opts.format);
 
   await requireExistingPipelineRun(bq, config, resolved.pipeline_run_id);
-  const data = await loadReportData(bq, config, resolved.pipeline_run_id);
+  const data = await loadReportData(
+    bq,
+    config,
+    resolved.pipeline_run_id,
+    loaded.config.layer2.cosine_distance_threshold,
+  );
 
   const outOpts: {
     pipelineRunId: string;
