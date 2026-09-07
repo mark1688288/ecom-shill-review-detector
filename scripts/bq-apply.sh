@@ -59,6 +59,7 @@ apply_sql "${DDL_DIR}/13_burst_events.sql"
 apply_sql "${DDL_DIR}/14_cross_store_template_collisions.sql"
 apply_sql "${DDL_DIR}/15_shill_network_edges.sql"
 apply_sql "${DDL_DIR}/16_funnel_stats.sql"
+apply_sql "${DDL_DIR}/human_labels.sql"
 
 apply_sql "${SEED_DIR}/pr_seed_phrases_v0.sql"
 

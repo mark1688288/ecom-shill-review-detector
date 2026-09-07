@@ -28,6 +28,7 @@ export const GCP_COMMANDS = [
   'audit',
   'analyze',
   'report',
+  'seeds',
 ] as const;
 
 const PACKAGE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
