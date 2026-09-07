@@ -23,6 +23,7 @@ const REQUIRED_TABLES = [
   'review_embeddings',
   'seed_embeddings',
   'stage2_suspicious_for_gemini',
+  'layer2_distance_audit',
 ];
 
 const tmpDirs: string[] = [];
@@ -325,7 +326,8 @@ describe('runLayer2 with mock BigQuery', () => {
     expect(calls.some((c) => c.query.includes('seed_text AS content'))).toBe(true);
     expect(calls.some((c) => c.query.includes('LEFT(s.comment_text'))).toBe(true);
     expect(calls.some((c) => c.query.includes('stage2_suspicious_for_gemini'))).toBe(true);
-    const distance = calls.find((c) => c.query.includes('AND cosine_distance <= @threshold'));
+    expect(calls.some((c) => c.query.includes('layer2_distance_audit'))).toBe(true);
+    const distance = calls.find((c) => c.query.includes('WHERE cosine_distance <= @threshold'));
     expect(distance?.params?.['pipeline_run_id']).toBe(RUN);
     expect(distance?.params?.['seed_version']).toBe('v0_hypothesis');
     expect(distance?.params?.['embedding_model']).toBe('text-multilingual-embedding-002');
@@ -502,7 +504,7 @@ describe('runLayer2 with mock BigQuery', () => {
       bigquery: bq,
     });
     expect(calls.some((c) => c.query.includes("seed_version = 'v0_hypothesis'"))).toBe(false);
-    const distance = calls.find((c) => c.query.includes('AND cosine_distance <= @threshold'));
+    const distance = calls.find((c) => c.query.includes('WHERE cosine_distance <= @threshold'));
     expect(distance?.params?.['seed_version']).toBe('v1_custom');
   });
 });

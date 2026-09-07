@@ -41,6 +41,7 @@ const LAYER2_TABLES = [
   'review_embeddings',
   'seed_embeddings',
   'stage2_suspicious_for_gemini',
+  'layer2_distance_audit',
 ] as const;
 
 export type Layer2CliOptions = {
