@@ -222,7 +222,7 @@ ecom-shill-review-detector/
     cli/commands/audit.ts
     cli/commands/analyze.ts
     cli/commands/report.ts
-    cli/commands/seeds.ts            # Phase 5；Phase 0–4 help 列為 not implemented（exit 2）
+    cli/commands/seeds.ts            # Phase 5：upsert 新 seed_version；calibrate 掃 0.28
     crawler/types.ts                 # FixtureReviewRaw + NormalizedReview
     crawler/adapter.ts               # MarketplaceAdapter interface
     crawler/normalize.ts             # NFC、空白、language_hint 啟發式
@@ -270,6 +270,7 @@ ecom-shill-review-detector/
     ddl/14_cross_store_template_collisions.sql
     ddl/15_shill_network_edges.sql
     ddl/16_funnel_stats.sql
+    ddl/human_labels.sql             # Phase 5：human_labels + calibration_sweep
     seeds/logistics_canned_phrases.sql
     seeds/pr_seed_phrases_v0.sql
     layer1/filter_stage1.sql
@@ -282,6 +283,7 @@ ecom-shill-review-detector/
     analysis/semantic_collisions.sql
     analysis/shill_network_edges.sql
     analysis/funnel_counts.sql
+    analysis/calibration.sql         # Phase 5：sweep {0.18,0.22,0.25,0.28,0.32,0.38}
   fixtures/
     reviews/cantonese-mix.jsonl
     reviews/logistics-only.jsonl
@@ -564,21 +566,31 @@ ecom-shill report
   --dot                               另寫 Graphviz .dot
   --out <path>                        default reports/<pipeline_run_id>.md|.json
 
-ecom-shill seeds                     Phase 5；v1 help 顯示、呼叫 exit 2 not implemented
+ecom-shill seeds upsert
+  --input <jsonl|json>               7 個 category slot（JSONL 或 JSON 陣列）
+  --seed-version <id>                新版本；拒絕 v0_hypothesis
+  --no-activate                      不把其他 version 的 is_active 設 false（預設會停用舊版）
+  --dry-run                          只驗證 7 slot 並印 plan_*；不寫 BQ
+
+ecom-shill seeds calibrate
+  --pipeline-run-id / --continue-latest   必居其一（live）；禁止新建 run
+  --label-file <jsonl>               可選；MERGE/REPLACE 該 run 的 human_labels
+  --dry-run                          驗證 label-file 並印 plan_*；不寫 BQ、不需 run id
 
 ecom-shill harvest                   見 docs/design-bright-data-scrapping-pro-browser-hktvmall.md；或 ScrapingBee `--transport scrapingbee`（docs/design-scrapingbee-hktvmall-reviews.md）；不走 addRunFlags；不建立 pipeline_runs
 ```
 
-Help：`pnpm cli -- --help`（pnpm 把第一個 `--` 當 script 參數分隔）。子命令已登記但未實作 → **exit 2** + `not implemented`。Phase 0 的 `seeds` 屬此類；`json_api` crawl 已實作但零 HTTP，**不是** not implemented。
+Help：`pnpm cli -- --help`（pnpm 把第一個 `--` 當 script 參數分隔）。`json_api` crawl 已實作但零 HTTP，**不是** not implemented。
 
 Dry-run 不得建立 GCP 資源、不得寫 `data/`（含 `data/runs/latest`）。`shared/env.ts` 分組：
 
 | 命令 | 必備 env |
 | --- | --- |
-| `crawl --adapter fixture --dry-run`、unit test | `REVIEWER_ID_SALT`（≥16） |
+| `crawl --adapter fixture --dry-run`、`seeds * --dry-run`、unit test | `REVIEWER_ID_SALT`（≥16） |
 | `crawl` 寫 NDJSON（仍無 GCP） | `REVIEWER_ID_SALT` |
 | `load` / `layer1` | `REVIEWER_ID_SALT` + `GCP_PROJECT` + `GCP_LOCATION` + `BQ_DATASET`（可 INSERT `pipeline_runs`） |
-| `layer2` / `audit` / `analyze` / `report` | 同上，但 **必須**已有 `--pipeline-run-id` 或 `--continue-latest`；禁止新建 run |
+| `layer2` / `audit` / `analyze` / `report` / `seeds calibrate`（live） | 同上，但 **必須**已有 `--pipeline-run-id` 或 `--continue-latest`；禁止新建 run |
+| `seeds upsert`（live） | GCP 三件套；**不**寫 `pipeline_runs` |
 | `audit` live Gemini | 上列 + Vertex ADC（或明確 `GEMINI_API_KEY` fallback） |
 
 BQ client **懶建立**（第一次 query 才 `new BigQuery()`）。`GCP_PROJECT` 缺席時 fixture 測試仍綠。

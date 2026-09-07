@@ -73,6 +73,24 @@ describe('loadEnv', () => {
     expect(loaded.gcp).toBeUndefined();
   });
 
+  it('does not require GCP_PROJECT for seeds --dry-run', () => {
+    const loaded = loadEnv({
+      command: 'seeds',
+      dryRun: true,
+      env: { REVIEWER_ID_SALT: VALID_SALT },
+    });
+    expect(loaded.gcp).toBeUndefined();
+  });
+
+  it('requires GCP_PROJECT for live seeds', () => {
+    expect(() =>
+      loadEnv({
+        command: 'seeds',
+        env: { REVIEWER_ID_SALT: VALID_SALT },
+      }),
+    ).toThrow(/GCP_PROJECT/);
+  });
+
   it('requires GCP_PROJECT for load', () => {
     expect(() =>
       loadEnv({
@@ -130,10 +148,14 @@ describe('commandRequiresGcp', () => {
     expect(commandRequiresGcp('audit', true)).toBe(false);
   });
 
-  it('is false for crawl, seeds, and harvest (GCP allow-list)', () => {
+  it('is false for crawl and harvest (GCP allow-list)', () => {
     expect(commandRequiresGcp('crawl', false)).toBe(false);
-    expect(commandRequiresGcp('seeds', false)).toBe(false);
     expect(commandRequiresGcp('harvest', false)).toBe(false);
+  });
+
+  it('is false for seeds --dry-run and true for live seeds', () => {
+    expect(commandRequiresGcp('seeds', true)).toBe(false);
+    expect(commandRequiresGcp('seeds', false)).toBe(true);
   });
 
   it('is true for load and downstream commands', () => {

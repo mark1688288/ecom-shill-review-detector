@@ -11,13 +11,7 @@ import { layer1Action } from './commands/layer1.js';
 import { layer2Action } from './commands/layer2.js';
 import { loadAction } from './commands/load.js';
 import { reportAction } from './commands/report.js';
-
-function notImplemented(commandName: string): () => never {
-  return () => {
-    process.stderr.write(`${commandName}: not implemented\n`);
-    process.exit(2);
-  };
-}
+import { seedsCalibrateAction, seedsUpsertAction } from './commands/seeds.js';
 
 function addRunFlags(cmd: Command): Command {
   return cmd
@@ -169,10 +163,29 @@ export function buildProgram(): Command {
     .option('--strict', 'Fail when any wrapper is rejected (empty harvest always fails)', false)
     .action(harvestAction);
 
-  program
+  const seeds = program
     .command('seeds')
-    .description('Upsert PR seed phrases (Phase 5)')
-    .action(notImplemented('seeds'));
+    .description('Upsert PR seed phrases or sweep cosine-distance thresholds (Phase 5)');
+
+  seeds
+    .command('upsert')
+    .description(
+      'INSERT a new seed_version into pr_seed_phrases (does not overwrite older versions)',
+    )
+    .requiredOption('--input <path>', 'JSONL or JSON array of the 7 category slots')
+    .requiredOption('--seed-version <id>', 'New seed_version (not v0_hypothesis)')
+    .option('--no-activate', 'Leave other seed_versions active')
+    .option('--dry-run', 'Validate input and print plan_*; no BigQuery', false)
+    .action(seedsUpsertAction);
+
+  seeds
+    .command('calibrate')
+    .description('Sweep cosine-distance thresholds against human_labels for a pipeline run')
+    .option('--pipeline-run-id <uuid>', 'Pipeline run id (mutually exclusive with --continue-latest)')
+    .option('--continue-latest', 'Read pipeline_run_id from data/runs/latest')
+    .option('--label-file <jsonl>', 'Upsert labels for this run before the sweep')
+    .option('--dry-run', 'Validate --label-file and print plan_*; no BigQuery', false)
+    .action(seedsCalibrateAction);
 
   return program;
 }

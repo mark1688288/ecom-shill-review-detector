@@ -1,0 +1,4 @@
+{"review_id":"rev_near_seed_1","label":"shill","stratum":"near_seed"}
+{"review_id":"rev_far_seed_1","label":"shill","stratum":"far_seed","notes":"template not in v0 list"}
+{"review_id":"rev_genuine_long_1","label":"not_shill","stratum":"genuine_long"}
+{"review_id":"rev_logistics_edge_1","label":"unsure","stratum":"logistics_edge"}
