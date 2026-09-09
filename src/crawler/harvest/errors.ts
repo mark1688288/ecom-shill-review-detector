@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+import type { HarvestStoppedReason } from './harvest-page.js';
 
 export class HarvestUsageError extends Error {
   readonly exitCode: number;
@@ -96,6 +97,37 @@ export class HarvestEmptyAcceptedError extends Error {
   constructor() {
     super('Harvest parsed wrappers but accepted 0 reviews');
     this.name = 'HarvestEmptyAcceptedError';
+  }
+}
+
+export class HarvestPaginationShortfallError extends Error {
+  readonly exitCode = 1;
+  readonly n_pages: number;
+  readonly page_total: number | null;
+  readonly n_declared_reviews: number | null;
+  readonly n_accepted: number;
+  readonly expected_pages: number;
+  readonly stopped_reason: HarvestStoppedReason;
+
+  constructor(opts: {
+    url: string;
+    n_pages: number;
+    page_total: number | null;
+    n_declared_reviews: number | null;
+    n_accepted: number;
+    expected_pages: number;
+    stopped_reason: HarvestStoppedReason;
+  }) {
+    super(
+      `Harvest stopped before pager end for ${opts.url}: n_pages=${String(opts.n_pages)} expected_pages=${String(opts.expected_pages)} n_accepted=${String(opts.n_accepted)} n_declared_reviews=${String(opts.n_declared_reviews ?? 'null')} page_total=${String(opts.page_total ?? 'null')} stopped_reason=${opts.stopped_reason}`,
+    );
+    this.name = 'HarvestPaginationShortfallError';
+    this.n_pages = opts.n_pages;
+    this.page_total = opts.page_total;
+    this.n_declared_reviews = opts.n_declared_reviews;
+    this.n_accepted = opts.n_accepted;
+    this.expected_pages = opts.expected_pages;
+    this.stopped_reason = opts.stopped_reason;
   }
 }
 

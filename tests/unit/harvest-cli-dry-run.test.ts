@@ -6,7 +6,11 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildProgram } from '../../src/cli/main.js';
 import { runHarvest, type HarvestConnect } from '../../src/cli/commands/harvest.js';
-import { HarvestTosRequiredError, HktvmallUrlParseError } from '../../src/crawler/harvest/errors.js';
+import {
+  HarvestPaginationShortfallError,
+  HarvestTosRequiredError,
+  HktvmallUrlParseError,
+} from '../../src/crawler/harvest/errors.js';
 import type { HarvestLocator, HarvestPage } from '../../src/crawler/harvest/harvest-page.js';
 import { BrightDataCredentialsError } from '../../src/shared/env.js';
 
@@ -75,6 +79,62 @@ class MockLocator implements HarvestLocator {
 
 function onePageHtml(): string {
   return `<div class="product-review-wrapper" data-reviewid="rid-1"><div class="product-review-user"><table class="review-info-table"><tr><td class="user-info"><a data-user="u1" href="/hktv/zh/review/profile?userId=u1"><span class="review-username">N</span></a></td></tr><tr><td class="td-rating-n-date"><span class="product-review-rating"><div class="star-wrapper"><div class="star-container">${'<div><span class="empty-star"></span></div>'.repeat(5)}</div><div class="star-container">${'<div><span class="star"></span></div>'.repeat(5)}</div></div></span><span class="review-date">2024-06-01</span></td></tr></table></div><div class="product-review-rightPanel"><div class="product-review-content"><div class="review-title"><span>好好味！</span></div></div></div></div>`;
+}
+
+function starMarkup(filled: number): string {
+  const empty = '<div><span class="empty-star"></span></div>'.repeat(5);
+  const stars = '<div><span class="star"></span></div>'.repeat(filled);
+  return `<span class="product-review-rating"><div class="star-wrapper"><div class="star-container">${empty}</div><div class="star-container">${stars}</div></div></span>`;
+}
+
+function wrapperHtml(id: string, user: string, title: string): string {
+  return `<div class="product-review-wrapper" data-reviewid="${id}"><div class="product-review-user"><table class="review-info-table"><tr><td class="user-info"><a data-user="${user}" href="/hktv/zh/review/profile?userId=${user}"><span class="review-username">Display Name</span></a></td></tr><tr><td class="td-rating-n-date">${starMarkup(5)}<span class="review-date">2024-06-01</span></td></tr></table></div><div class="product-review-rightPanel"><div class="product-review-content"><div class="review-title"><span>${title}</span></div></div></div></div>`;
+}
+
+function tenWrappersHtml(chrome: string): string {
+  const wrappers = Array.from({ length: 10 }, (_, i) => {
+    const n = String(i).padStart(2, '0');
+    return wrapperHtml(`rid-${n}`, `u-${n}`, `評語${n}`);
+  });
+  return `${chrome}${wrappers.join('')}`;
+}
+
+function mockHarvestPage(opts: {
+  html: string;
+  nextEnabled: boolean;
+  waitForNewReviewIds?: () => Promise<boolean>;
+}): HarvestPage {
+  const tab = new MockLocator({ click: async () => undefined, count: async () => 1 });
+  const next = new MockLocator({
+    count: async () => 1,
+    getAttribute: async (name) =>
+      !opts.nextEnabled && name === 'aria-disabled' ? 'true' : null,
+  });
+  const empty = new MockLocator();
+  return {
+    goto: async () => undefined,
+    setViewportSize: async () => undefined,
+    waitForSelector: async () => undefined,
+    content: async () => opts.html,
+    innerText: async () => '',
+    waitForNewReviewIds: async () => {
+      if (opts.waitForNewReviewIds !== undefined) {
+        return opts.waitForNewReviewIds();
+      }
+      return false;
+    },
+    locator: (selector: string) => (selector.includes('reviewTab') ? tab : empty),
+    getByRole: (role, roleOpts) => {
+      if (role === 'heading') {
+        return tab;
+      }
+      if (roleOpts?.name === '下一頁') {
+        return next;
+      }
+      return empty;
+    },
+    getByText: (text) => (text === '下一頁' ? next : empty),
+  };
 }
 
 function onePagePage(): HarvestPage {
@@ -293,9 +353,13 @@ describe('runHarvest live mock (no CDP)', () => {
     const manifest = JSON.parse(await readFile(result.manifestPath, 'utf8')) as {
       ok: boolean;
       failed_url: string | null;
+      stopped_reason: string | null;
+      page_total: number | null;
     };
     expect(manifest.ok).toBe(true);
     expect(manifest.failed_url).toBeNull();
+    expect(manifest.stopped_reason).toBe('next_disabled');
+    expect(manifest.page_total).toBeNull();
     expect(existsSync(`${result.outPath}.partial`)).toBe(false);
     expect(text()).toMatch(/n_pages=1/);
     expect(text()).toMatch(/n_accepted=1/);
@@ -323,11 +387,153 @@ describe('runHarvest live mock (no CDP)', () => {
     expect(await readFile(out, 'utf8')).toBe('{"old":true}\n');
     const manifest = JSON.parse(
       await readFile(path.join(dir, 'keep.manifest.json'), 'utf8'),
-    ) as { ok: boolean; failed_url: string; n_urls_ok: number };
+    ) as {
+      ok: boolean;
+      failed_url: string;
+      n_urls_ok: number;
+      stopped_reason: string | null;
+      page_total: number | null;
+    };
     expect(manifest.ok).toBe(false);
     expect(manifest.failed_url).toBe(VALID_URL);
     expect(manifest.n_urls_ok).toBe(0);
+    expect(manifest.stopped_reason).toBeNull();
+    expect(manifest.page_total).toBeNull();
     expect(existsSync(`${out}.partial`)).toBe(true);
+  });
+
+  it('7 rejects HarvestPaginationShortfallError when waitForNewReviewIds is false on a 54-page product', async () => {
+    const dir = await tmp();
+    const out = path.join(dir, 'keep.jsonl');
+    await writeFile(out, '{"old":true}\n', 'utf8');
+    const events: string[] = [];
+    const logger = {
+      info: (obj: { event?: string }) => {
+        if (typeof obj.event === 'string') {
+          events.push(obj.event);
+        }
+      },
+      warn: (obj: { event?: string }) => {
+        if (typeof obj.event === 'string') {
+          events.push(obj.event);
+        }
+      },
+      error: (obj: { event?: string }) => {
+        if (typeof obj.event === 'string') {
+          events.push(obj.event);
+        }
+      },
+      debug: () => undefined,
+    } as never;
+    const connect = vi.fn<HarvestConnect>(async () => ({
+      page: mockHarvestPage({
+        html: tenWrappersHtml(
+          '<span class="comment__count">536</span><span class="total">/共54頁</span>',
+        ),
+        nextEnabled: true,
+        waitForNewReviewIds: async () => false,
+      }),
+      close: async () => undefined,
+    }));
+    await expect(
+      runHarvest({
+        url: [VALID_URL],
+        iAcceptTos: true,
+        out,
+        cwd: dir,
+        env: dummyCreds(),
+        now: new Date('2026-09-09T12:00:00.000Z'),
+        stdout: { write: () => true },
+        connect,
+        logger,
+      }),
+    ).rejects.toBeInstanceOf(HarvestPaginationShortfallError);
+    expect(await readFile(out, 'utf8')).toBe('{"old":true}\n');
+    expect(existsSync(out)).toBe(true);
+    const partial = await readFile(`${out}.partial`, 'utf8');
+    expect(partial.split('\n').filter((line) => line.length > 0)).toHaveLength(10);
+    const manifest = JSON.parse(await readFile(path.join(dir, 'keep.manifest.json'), 'utf8')) as {
+      ok: boolean;
+      failed_url: string;
+      n_urls_ok: number;
+      n_urls_failed: number;
+      n_accepted: number;
+      n_pages: number;
+      n_rejected: number;
+      stamp: string;
+      transport: string;
+      stopped_reason: string | null;
+      page_total: number | null;
+    };
+    expect(manifest).toEqual({
+      ok: false,
+      failed_url: VALID_URL,
+      n_urls_ok: 0,
+      n_urls_failed: 1,
+      n_accepted: 10,
+      n_pages: 1,
+      n_rejected: 0,
+      stamp: '20260909T120000Z',
+      transport: 'brightdata',
+      stopped_reason: 'unchanged_ids',
+      page_total: 54,
+    });
+    expect(events).toContain('harvest_pagination_shortfall');
+    expect(events).not.toContain('harvest_incomplete_pages');
+  });
+
+  it('9 max_pages is not a shortfall and still ok:true', async () => {
+    const dir = await tmp();
+    const events: string[] = [];
+    const logger = {
+      info: () => undefined,
+      warn: (obj: { event?: string }) => {
+        if (typeof obj.event === 'string') {
+          events.push(obj.event);
+        }
+      },
+      error: (obj: { event?: string }) => {
+        if (typeof obj.event === 'string') {
+          events.push(obj.event);
+        }
+      },
+      debug: () => undefined,
+    } as never;
+    const connect = vi.fn<HarvestConnect>(async () => ({
+      page: mockHarvestPage({
+        html: tenWrappersHtml('<span class="total">/共3頁</span>'),
+        nextEnabled: true,
+        waitForNewReviewIds: async () => {
+          throw new Error('waitForNewReviewIds must not run after max_pages');
+        },
+      }),
+      close: async () => undefined,
+    }));
+    const result = await runHarvest({
+      url: [VALID_URL],
+      iAcceptTos: true,
+      maxPages: '1',
+      cwd: dir,
+      env: dummyCreds(),
+      now: new Date('2026-09-09T12:00:00.000Z'),
+      stdout: { write: () => true },
+      connect,
+      logger,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.n_pages).toBe(1);
+    expect(result.n_accepted).toBe(10);
+    const manifest = JSON.parse(await readFile(result.manifestPath, 'utf8')) as {
+      ok: boolean;
+      stopped_reason: string | null;
+      page_total: number | null;
+    };
+    expect(manifest.ok).toBe(true);
+    expect(manifest.stopped_reason).toBe('max_pages');
+    expect(manifest.page_total).toBe(3);
+    expect(events).toContain('harvest_max_pages');
+    expect(events).not.toContain('harvest_pagination_shortfall');
+    expect(existsSync(`${result.outPath}.partial`)).toBe(false);
   });
 
   it('fail-fast: second URL is not connected after the first throws', async () => {
