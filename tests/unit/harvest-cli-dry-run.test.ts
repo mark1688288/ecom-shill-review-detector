@@ -184,6 +184,8 @@ describe('harvest CLI flags', () => {
     expect(help).toContain('--dry-run');
     expect(help).toContain('wrapper');
     expect(help).toContain('does not create pipeline runs');
+    expect(help).toContain('cost cap');
+    expect(help).toMatch(/Does not control pagination\s+completeness/);
     expect(help).not.toContain('--pipeline-run-id');
     expect(help).not.toContain('--continue-latest');
     expect(help).not.toContain('--i-am-prod');
@@ -225,7 +227,7 @@ describe('runHarvest dry-run', () => {
     expect(printed).toContain('plan_click=css:[data-tab="reviewTab"]');
     expect(printed).toContain('plan_wait=div.product-review-wrapper');
     expect(printed).toContain('plan_next=role:link|button name=下一頁');
-    expect(printed).toContain('plan_paginate=waitForNewReviewIds');
+    expect(printed).toContain('plan_paginate=waitForNewReviewIds+content_poll');
     expect(printed).toContain('plan_locale_path=/hktv/zh/');
     expect(printed).toContain('plan_connect=no');
     expect(printed).toContain('plan_goto_waitUntil=domcontentloaded');

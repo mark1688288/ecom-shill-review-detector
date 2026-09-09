@@ -149,7 +149,7 @@ describe('runHarvest --transport scrapingbee dry-run', () => {
     expect(printed).toContain('plan_paginate=js_scenario evaluate select.value pageIndex');
     expect(printed).toContain('plan_http=no');
     expect(printed).not.toContain('plan_next=role:link|button name=下一頁');
-    expect(printed).not.toContain('plan_paginate=waitForNewReviewIds');
+    expect(printed).not.toContain('plan_paginate=waitForNewReviewIds+content_poll');
   });
 
   it('rejects out-of-range --goto-timeout-ms before ToS, key, or HTTP', async () => {

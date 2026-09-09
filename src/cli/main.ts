@@ -149,7 +149,11 @@ export function buildProgram(): Command {
     .option('--dry-run', 'Validate URLs and print plan_*; no CDP, no files, no creds, no ToS', false)
     .option('--country <iso>', 'ISO country for proxy geo (default HK)', 'HK')
     .option('--max-reviews <n>', 'Cap unique native_review_id across pages')
-    .option('--max-pages <n>', 'Max pages to parse per URL (default 20)', '20')
+    .option(
+      '--max-pages <n>',
+      'Max pages to parse per URL (default 20, cost cap). Set >= ceil(declared_reviews/10) to finish a product.',
+      '20',
+    )
     .option(
       '--goto-timeout-ms <n>',
       'navigation/API timeout (default 120000; ScrapingBee requires 1000–140000)',
@@ -160,7 +164,11 @@ export function buildProgram(): Command {
       'Bright Data review-tab/wrapper wait (default 30000); ScrapingBee logs only, does not change the 7000ms pager wait',
       '30000',
     )
-    .option('--strict', 'Fail when any wrapper is rejected (empty harvest always fails)', false)
+    .option(
+      '--strict',
+      'Fail when any wrapper is rejected (empty harvest always fails). Does not control pagination completeness.',
+      false,
+    )
     .action(harvestAction);
 
   const seeds = program
