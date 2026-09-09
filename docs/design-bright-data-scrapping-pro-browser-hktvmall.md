@@ -6,7 +6,7 @@
 | Document ID | `ecom-shill-bright-data-browser-hktvmall-supplement-v1` |
 | Author | TBD（實作前填入） |
 | Date | 2026-09-05 |
-| Status | **Draft**（rev 5：`force: true` click；`共N頁` 取 max，勿把 Q&A 共1頁當評論總頁） |
+| Status | **Draft**（rev 5：`force: true` click；`共N頁` 取 max。**2026-09-09 amendment**：[`docs/fix-harvest-bright-data-hktvmall.md`](fix-harvest-bright-data-hktvmall.md)） |
 | Repo | `/Users/mark/ecom-shill-review-detector` |
 | Parent | [`docs/design.md`](design.md)（**Accepted**，rev 4）。本文件是補充，**不是**替代。 |
 | Filename | `docs/design-bright-data-scrapping-pro-browser-hktvmall.md` — **scrapping** 為歷史拼字，不改檔名以免斷鏈。正確英文是 scraping。 |
@@ -26,6 +26,8 @@ Accepted v1（[`docs/design.md`](design.md)）把 ingest backbone 固定為：�
 本補充指定：**CLI 用 Bright Data Browser API（CDP WebSocket）+ Playwright `chromium.connectOverCDP` 重放 MCP Pro 的 navigate → click 評論 → `page.content()` → 既有 `parseHktvmallReviewPage`**。第一個可合併切片是新命令 `ecom-shill harvest`（寫 `FixtureReviewRaw` JSONL，再走現有 `crawl --adapter fixture`），而不是把 live HTTP 塞進 `fixture` 或把 `json_api` 改成 Bright Data。Phase B 才是可選 `--adapter bright_data`。不改 BigQuery DDL、不發明 `FixtureReviewRaw` 欄位、不把任何私有 XHR 寫進 git／config／本文件。
 
 本補充 **不放寬** KD-04 的 CI 契約（fixture／`json_api`／GitHub Actions 仍零 live HTTP）。它是 Accepted 預留的「未來另有指令」：操作者明示的 `harvest`（Browser API → JSONL）。此補充 Accepted 之後，[`docs/design.md`](design.md) KD-04／Security 表加一行交叉引用（PR-H3），避免三份文件對「repo 是否存在 live 流量」說法不一致。
+
+2026-09-09 amendment（[`docs/fix-harvest-bright-data-hktvmall.md`](fix-harvest-bright-data-hktvmall.md)）：空 snapshot 不得計入 `n_pages`；`pageTotal`／declared 只從第一次 hydrated commit HTML 取；假完整（例如 10 則對 536 則）不得 `ok: true` rename。Commit／settle／CLI completeness 以該檔為準；本文件不重貼新演算法。
 
 ---
 
@@ -117,7 +119,7 @@ Probe 過程中，水合後的頁面會向某 comms host 拉評論 JSON。那只
 | KD-BD-09 | `harvest --dry-run` | **只**驗證公開 URL／`parseHktvmallProductPath`、印 `plan_*`，**不** `connectOverCDP`、**不**要求 Browser API creds、**不**寫 `--out` | 連 CDP 就會產生 Bright Data 費用。Dry-run 必須 CI 可跑。 |
 | KD-BD-10 | Geo | 預設 `--country HK` → username 後綴 `-country-hk`。env username 若已符合 `/-country-[a-z]{2}$/i` → 拒絕（不要疊兩次）。 | Probe 用 `country:"HK"`。Bright Data：`-country-<iso>` 接在 USER 之後。 |
 | KD-BD-11 | 評論 DOM | 點 `[data-tab="reviewTab"]`（fallback `li[data-tab="reviewTab"]`、`getByRole('heading', { name: '評論' })`）。每個 candidate `visible().first().click({ timeout, force: true })` 包 try/catch；失敗換下一個；全失敗 → `ReviewTabNotFoundError`。然後 `waitForSelector('div.product-review-wrapper')`。 | `data-tab` 語言無關。禁止點「問問大家」。Playwright 預設 actionability 會被 overlay 攔截而 timeout（元素 visible 但仍點唔到）。**不**猜 banner 選擇器；`force: true` 繞過 intercept。原始 `TimeoutError` 不得冒成 unhandled。 |
-| KD-BD-12 | 分頁 | 同一 `HarvestPage` 上按 **凍結 locator** 點「下一頁」；`waitForNewReviewIds`（boolean，無 `document`）等新 id；`n_pages` = **已 parse 的頁數**（每成功 parse 後 `+= 1`，再檢查 max／next）。`native_review_id` last-write-wins。H1 只支援 pathname 含 `/hktv/zh/`；**不**用 `/^next$/i`。見「分頁 DOM 契約」。 | 10／頁。第一頁不是母體。禁止猜 `.pagination a.next`。`n_pages` 在 click 後才加會 off-by-one。 |
+| KD-BD-12 | 分頁 | 同一 `HarvestPage` 上按 **凍結 locator** 點「下一頁」；`waitForNewReviewIds`（boolean，無 `document`）等新 id；`n_pages` = **已 parse 的頁數**（每成功 parse 後 `+= 1`，再檢查 max／next）。`native_review_id` last-write-wins。H1 只支援 pathname 含 `/hktv/zh/`；**不**用 `/^next$/i`。見「分頁 DOM 契約」。**細節與 commit／settle 以 [`docs/fix-harvest-bright-data-hktvmall.md`](fix-harvest-bright-data-hktvmall.md) 為準。** | 10／頁。第一頁不是母體。禁止猜 `.pagination a.next`。`n_pages` 在 click 後才加會 off-by-one。 |
 | KD-BD-13 | Parser | Driver **只**呼叫匯出函式 `parseHktvmallReviewPage`（內部再叫 wrapper mapper）。禁止 import 檔案 private helper。 | `countFilledStars` 等不是 export，import 會編譯失敗。 |
 | KD-BD-14 | 私有 XHR | **不**當 recipe、**不**進 config、**不**進本文件 URL 清單 | ToS／git 政策。 |
 | KD-BD-15 | 非評論訊號 | 不 ingest Q&A；商店 4.0 ≠ `star_rating`；商品 4.5／42則 ≠ 一列 | `star_rating` 只來自 wrapper 內實心 `span.star`。 |
@@ -130,7 +132,7 @@ Probe 過程中，水合後的頁面會向某 comms host 拉評論 JSON。那只
 | KD-BD-22 | `--out` 原子性 | 寫 `*.jsonl.partial` + sidecar `*.manifest.json`。**全部 URL 成功**才 `rename(partial, outPath)`（rename 可取代舊檔）並 `ok: true`。失敗：**不 unlink** 既有 `--out`；sidecar `ok: false`（含 `n_urls_ok`／`failed_url`）；保留 `.partial`。stamp `YYYYMMDDTHHMMSSZ`。crawl 只吃 `ok: true` 的 `--out`，永不吃 `.partial`。 | 失敗時刪 `--out` 會毀掉上次成功的 harvest。Windows 不接受檔名 `:`。 |
 | KD-BD-23 | harvest flags | **不**呼叫 `addRunFlags(harvest)`。只登記 harvest 用的 flag。`--url` 用與 `crawl --store-id` 相同的 collect callback。`--marketplace` 省略 → 預設 `hktvmall`。`--pipeline-run-id` 等不登記 → Commander unknown option。`--strict` help 寫 wrapper reject，不是 fixture Zod。 | `addRunFlags` 會把 crawl 專用的 run id／「Fail crawl on fixture Zod」套到 harvest。 |
 | KD-BD-24 | `goto` | `page.goto(url, { timeout: goto_timeout_ms, waitUntil: 'domcontentloaded' })`。預設 timeout 120s。 | Playwright 預設 `load` 常被 analytics 卡住。Bright Data 範例只保證 2 min navigation timeout；probe 未證明 `load` 會返回。 |
-| KD-BD-25 | 分頁停滯 vs session drop | `waitForNewReviewIds === false`（**僅** Playwright `TimeoutError`／集合不變）或 next disabled → **停**（`unchanged_ids\|next_disabled`），log `harvest_incomplete_pages`，不當 hard-fail。CDP **斷線／target closed** → **throw** `HarvestSessionDroppedError`（該 URL 失敗，不 `ok: true` rename）。禁止 `catch { return false }`。 | 把 disconnect 當成 timeout 會把第一頁 10 則寫成完整母體。 |
+| KD-BD-25 | 分頁停滯 vs session drop | `waitForNewReviewIds === false`（**僅** Playwright `TimeoutError`／集合不變）或 next disabled → **停**（`unchanged_ids\|next_disabled`），log `harvest_incomplete_pages`，**driver 不 throw**。`n_pages >= expected` 時 CLI 仍 warn-only `ok: true`。`n_pages < expected` 時 **CLI**（`runHarvest`）可 `HarvestPaginationShortfallError` + KD-BD-22 不 rename；throw 點不是 driver。CDP **斷線／target closed** → **throw** `HarvestSessionDroppedError`（該 URL 失敗，不 `ok: true` rename）。禁止 `catch { return false }`。細節見 [`docs/fix-harvest-bright-data-hktvmall.md`](fix-harvest-bright-data-hktvmall.md)。 | 把 disconnect 當成 timeout 會把第一頁 10 則寫成完整母體。假完整（stall 且頁數不足）由 CLI gate 擋，不是 driver hard-fail。 |
 
 編號 `KD-BD-*` 避免與 Accepted `KD-01`–`KD-26` 碰撞。若衝突，**以 Accepted 文件為準**（本補充不得放寬 fixture-first CI、`review_id`、或 `FixtureReviewRaw` 欄位）。
 

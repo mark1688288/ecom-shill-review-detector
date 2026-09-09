@@ -213,7 +213,7 @@ function printDryRunPlan(
     stdout.write(`plan_click=css:[data-tab="reviewTab"]\n`);
     stdout.write(`plan_wait=div.product-review-wrapper\n`);
     stdout.write(`plan_next=role:link|button name=下一頁\n`);
-    stdout.write(`plan_paginate=waitForNewReviewIds\n`);
+    stdout.write(`plan_paginate=waitForNewReviewIds+content_poll\n`);
     stdout.write(`plan_locale_path=/hktv/zh/\n`);
     stdout.write(`plan_connect=no\n`);
     stdout.write(`plan_goto_waitUntil=domcontentloaded\n`);
