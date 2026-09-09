@@ -150,6 +150,7 @@ export async function harvestHktvmallProductViaScrapingBee(
     n_pages,
     n_wrappers,
     n_declared_reviews,
+    page_total: pageTotal,
     latency_ms_goto,
     latency_ms_click: 0,
     latency_ms_total: Date.now() - started,

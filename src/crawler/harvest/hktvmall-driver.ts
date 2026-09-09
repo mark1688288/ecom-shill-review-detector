@@ -9,20 +9,30 @@ import type { HarvestLocator, HarvestPage, HarvestResult, HarvestStoppedReason }
 import type { FixtureReviewRaw } from '../types.js';
 import type { HktvmallHarvestContext, HktvmallWrapperFailureReason } from './hktvmall.js';
 import { parseHktvmallReviewPage } from './hktvmall.js';
+import {
+  parseHktvmallDeclaredReviewCount,
+  parseHktvmallReviewPageTotal,
+} from './hktvmall-pager-html.js';
 import { assertHktvmallPublicProductUrl } from './url-list.js';
+
+export {
+  HKTVMALL_DECLARED_REVIEWS_RE,
+  HKTVMALL_PAGE_TOTAL_RE,
+  maxPageTotalFromText,
+} from './hktvmall-pager-html.js';
 
 export const HKTVMALL_REVIEW_TAB_CSS = [
   '[data-tab="reviewTab"]',
   'li[data-tab="reviewTab"]',
 ] as const;
 
-export const HKTVMALL_PAGE_TOTAL_RE = /共\s*(\d+)\s*頁/;
-export const HKTVMALL_DECLARED_REVIEWS_RE = /(\d+)\s*則評論/;
-
 export const DEFAULT_GOTO_TIMEOUT_MS = 120_000;
 export const DEFAULT_WRAPPER_TIMEOUT_MS = 30_000;
 export const DEFAULT_MAX_PAGES = 20;
 export const WAIT_NEW_REVIEW_IDS_MS = 15_000;
+export const SETTLE_PARSE_TIMEOUT_MS = WAIT_NEW_REVIEW_IDS_MS;
+export const SETTLE_PARSE_POLL_MS = 400;
+export const HKTVMALL_REVIEWS_PER_PAGE = 10;
 export const HARVEST_VIEWPORT = { width: 1280, height: 720 } as const;
 
 export type HarvestDriverOpts = {
@@ -30,7 +40,60 @@ export type HarvestDriverOpts = {
   wrapperTimeoutMs?: number;
   maxPages?: number;
   maxReviews?: number;
+  settleParseTimeoutMs?: number;
+  settleParsePollMs?: number;
 };
+
+type ParsedPage = {
+  accepted: FixtureReviewRaw[];
+  rejected: { reason: HktvmallWrapperFailureReason }[];
+};
+
+export function declaredReviewPageFloor(nDeclaredReviews: number | null): number | null {
+  if (nDeclaredReviews !== null && nDeclaredReviews >= 1) {
+    return Math.ceil(nDeclaredReviews / HKTVMALL_REVIEWS_PER_PAGE);
+  }
+  return null;
+}
+
+/** Captured pager smaller than declared implies. Driver must not `end` on this. */
+export function isUnderstatedPageTotal(
+  pageTotal: number | null,
+  nDeclaredReviews: number | null,
+): boolean {
+  const floor = declaredReviewPageFloor(nDeclaredReviews);
+  return pageTotal !== null && pageTotal >= 1 && floor !== null && pageTotal < floor;
+}
+
+export function expectedHktvmallReviewPageCount(
+  pageTotal: number | null,
+  nDeclaredReviews: number | null,
+): number | null {
+  const fromPager = pageTotal !== null && pageTotal >= 1 ? pageTotal : null;
+  const fromDeclared = declaredReviewPageFloor(nDeclaredReviews);
+  if (fromPager !== null && fromDeclared !== null) {
+    return Math.max(fromPager, fromDeclared);
+  }
+  return fromPager ?? fromDeclared;
+}
+
+export function isHarvestCompletenessFailure(result: HarvestResult): boolean {
+  if (result.stopped_reason === 'max_pages' || result.stopped_reason === 'max_reviews') {
+    return false;
+  }
+  const expected = expectedHktvmallReviewPageCount(result.page_total, result.n_declared_reviews);
+  if (expected === null) {
+    return false;
+  }
+  if (result.n_pages >= expected) {
+    return false;
+  }
+  return (
+    result.stopped_reason === 'end' ||
+    result.stopped_reason === 'unchanged_ids' ||
+    result.stopped_reason === 'next_disabled'
+  );
+}
 
 export async function clickReviewTab(page: HarvestPage, timeoutMs: number): Promise<void> {
   const candidates: HarvestLocator[] = [
@@ -78,30 +141,36 @@ export async function isNextDisabled(loc: HarvestLocator): Promise<boolean> {
   return /\bdisabled\b/i.test(cls);
 }
 
-function parsePositiveCapture(match: RegExpExecArray | null): number | null {
-  const raw = match?.[1];
-  if (raw === undefined) {
-    return null;
-  }
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : null;
+function hasNewNativeReviewId(parsedPage: ParsedPage, byId: Map<string, FixtureReviewRaw>): boolean {
+  return parsedPage.accepted.some((row) => {
+    const id = row.native_review_id;
+    return id !== null && id.length > 0 && !byId.has(id);
+  });
 }
 
-/** Body innerText may contain both the review pager (共39頁) and Q&A (共1頁). */
-export function maxPageTotalFromText(text: string): number | null {
-  const re = /共\s*(\d+)\s*頁/g;
-  let max: number | null = null;
-  for (const match of text.matchAll(re)) {
-    const raw = match[1];
-    if (raw === undefined) {
-      continue;
-    }
-    const n = Number(raw);
-    if (Number.isFinite(n) && (max === null || n > max)) {
-      max = n;
+function commitPage(
+  parsedPage: ParsedPage,
+  byId: Map<string, FixtureReviewRaw>,
+  rejected: { reason: HktvmallWrapperFailureReason }[],
+): { n_wrappers_delta: number } {
+  const n_wrappers_delta = parsedPage.accepted.length + parsedPage.rejected.length;
+  rejected.push(...parsedPage.rejected);
+  for (const row of parsedPage.accepted) {
+    const id = row.native_review_id;
+    if (id !== null && id.length > 0) {
+      byId.set(id, row);
     }
   }
-  return max;
+  return { n_wrappers_delta };
+}
+
+async function sleepPoll(ms: number): Promise<void> {
+  if (ms <= 0) {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 export async function harvestHktvmallProductPage(
@@ -113,6 +182,8 @@ export async function harvestHktvmallProductPage(
   const wrapperTimeoutMs = opts.wrapperTimeoutMs ?? DEFAULT_WRAPPER_TIMEOUT_MS;
   const maxPages = opts.maxPages ?? DEFAULT_MAX_PAGES;
   const maxReviews = opts.maxReviews;
+  const settleParseTimeoutMs = opts.settleParseTimeoutMs ?? SETTLE_PARSE_TIMEOUT_MS;
+  const settleParsePollMs = opts.settleParsePollMs ?? SETTLE_PARSE_POLL_MS;
   const parsed = assertHktvmallPublicProductUrl(url);
   const ctx: HktvmallHarvestContext = {
     store_id: parsed.store_id,
@@ -144,45 +215,51 @@ export async function harvestHktvmallProductPage(
   const rejected: { reason: HktvmallWrapperFailureReason }[] = [];
   let n_pages = 0;
   let n_wrappers = 0;
-  let n_declared_reviews: number | null = null;
-  let stopped_reason: HarvestStoppedReason = 'end';
+  let stopped_reason: HarvestStoppedReason | null = null;
 
-  for (;;) {
-    const html = await page.content();
-    const parsedPage = parseHktvmallReviewPage(html, ctx);
-    n_wrappers += parsedPage.accepted.length + parsedPage.rejected.length;
-    rejected.push(...parsedPage.rejected);
-    for (const row of parsedPage.accepted) {
-      const id = row.native_review_id;
-      if (id !== null && id.length > 0) {
-        byId.set(id, row);
-      }
+  const page1Deadline = Date.now() + settleParseTimeoutMs;
+  let html = '';
+  let parsedPage: ParsedPage = { accepted: [], rejected: [] };
+  do {
+    html = await page.content();
+    parsedPage = parseHktvmallReviewPage(html, ctx);
+    if (parsedPage.accepted.length + parsedPage.rejected.length > 0) {
+      break;
     }
-    n_pages += 1;
+    await sleepPoll(settleParsePollMs);
+  } while (Date.now() < page1Deadline);
 
-    if (n_pages === 1 && n_wrappers === 0) {
-      throw new UnhydratedReviewPageError(wrapperTimeoutMs);
-    }
+  if (parsedPage.accepted.length + parsedPage.rejected.length === 0) {
+    throw new UnhydratedReviewPageError(wrapperTimeoutMs);
+  }
 
+  n_wrappers += commitPage(parsedPage, byId, rejected).n_wrappers_delta;
+  n_pages = 1;
+  const page_total = parseHktvmallReviewPageTotal(html);
+  const n_declared_reviews = parseHktvmallDeclaredReviewCount(html);
+
+  const considerStopAfterCommit = (): void => {
     if (maxReviews !== undefined && byId.size >= maxReviews) {
       stopped_reason = 'max_reviews';
-      break;
+      return;
     }
     if (n_pages >= maxPages) {
       stopped_reason = 'max_pages';
-      break;
+      return;
     }
-
-    const bodyText = await page.innerText('body');
-    if (n_declared_reviews === null) {
-      n_declared_reviews = parsePositiveCapture(HKTVMALL_DECLARED_REVIEWS_RE.exec(bodyText));
-    }
-    const pageTotal = maxPageTotalFromText(bodyText);
-    if (pageTotal !== null && n_pages >= pageTotal) {
+    if (
+      page_total !== null &&
+      page_total >= 1 &&
+      n_pages >= page_total &&
+      !isUnderstatedPageTotal(page_total, n_declared_reviews)
+    ) {
       stopped_reason = 'end';
-      break;
     }
+  };
 
+  considerStopAfterCommit();
+
+  while (stopped_reason === null) {
     const next = await locateNextPage(page);
     if (next === null || (await isNextDisabled(next))) {
       stopped_reason = 'next_disabled';
@@ -196,6 +273,29 @@ export async function harvestHktvmallProductPage(
       stopped_reason = 'unchanged_ids';
       break;
     }
+
+    const settleDeadline = Date.now() + settleParseTimeoutMs;
+    let committed = false;
+    while (Date.now() < settleDeadline) {
+      html = await page.content();
+      parsedPage = parseHktvmallReviewPage(html, ctx);
+      if (hasNewNativeReviewId(parsedPage, byId)) {
+        n_wrappers += commitPage(parsedPage, byId, rejected).n_wrappers_delta;
+        n_pages += 1;
+        committed = true;
+        break;
+      }
+      await sleepPoll(settleParsePollMs);
+    }
+    if (!committed) {
+      stopped_reason = 'unchanged_ids';
+      break;
+    }
+    considerStopAfterCommit();
+  }
+
+  if (stopped_reason === null) {
+    throw new Error('harvestHktvmallProductPage exited pagination without stopped_reason');
   }
 
   if (n_wrappers === 0) {
@@ -219,6 +319,7 @@ export async function harvestHktvmallProductPage(
     n_pages,
     n_wrappers,
     n_declared_reviews,
+    page_total,
     latency_ms_goto,
     latency_ms_click,
     latency_ms_total: Date.now() - started,

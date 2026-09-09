@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import { describe, expect, it } from 'vitest';
 import {
+  maxPageTotalFromText,
   parseHktvmallDeclaredReviewCount,
   parseHktvmallReviewPageTotal,
 } from '../../src/crawler/harvest/hktvmall-pager-html.js';
@@ -52,6 +53,7 @@ describe('parseHktvmallDeclaredReviewCount / parseHktvmallReviewPageTotal', () =
     const html = `<div class="page-controller"><span class="total">/共1頁</span></div>
 <div class="page-nav"><span class="total">/共39頁</span></div>`;
     expect(parseHktvmallReviewPageTotal(html)).toBe(39);
+    expect(maxPageTotalFromText('4.6 (381 則評論)\n/共39頁\n問問大家\n/共1頁')).toBe(39);
   });
 
   it('falls back to 則評論 when comment__count is absent', () => {
