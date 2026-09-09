@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-import {
-  HKTVMALL_DECLARED_REVIEWS_RE,
-  HKTVMALL_PAGE_TOTAL_RE,
-  maxPageTotalFromText,
-} from './hktvmall-driver.js';
+
+export const HKTVMALL_PAGE_TOTAL_RE = /共\s*(\d+)\s*頁/;
+export const HKTVMALL_DECLARED_REVIEWS_RE = /(\d+)\s*則評論/;
 
 const COMMENT_COUNT_RE =
   /<span\b[^>]*\bclass="[^"]*\bcomment__count\b[^"]*"[^>]*>\s*(\d+)\s*</i;
@@ -17,6 +15,23 @@ function parseNonNegativeIntCapture(match: RegExpExecArray | null): number | nul
   }
   const n = Number(raw);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Text may contain both the review pager (共39頁) and Q&A (共1頁); take the max. */
+export function maxPageTotalFromText(text: string): number | null {
+  const re = /共\s*(\d+)\s*頁/g;
+  let max: number | null = null;
+  for (const match of text.matchAll(re)) {
+    const raw = match[1];
+    if (raw === undefined) {
+      continue;
+    }
+    const n = Number(raw);
+    if (Number.isFinite(n) && (max === null || n > max)) {
+      max = n;
+    }
+  }
+  return max;
 }
 
 export function parseHktvmallDeclaredReviewCount(html: string): number | null {

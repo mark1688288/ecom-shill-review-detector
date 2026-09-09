@@ -47,9 +47,12 @@ export type HarvestResult = {
   product_id: string;
   accepted: FixtureReviewRaw[];
   rejected: { reason: HktvmallWrapperFailureReason }[];
+  /** Pages successfully committed (not clicks, not empty snapshots). */
   n_pages: number;
   n_wrappers: number;
   n_declared_reviews: number | null;
+  /** parseHktvmallReviewPageTotal from the first committed HTML; never backfilled. */
+  page_total: number | null;
   latency_ms_goto: number;
   latency_ms_click: number;
   latency_ms_total: number;

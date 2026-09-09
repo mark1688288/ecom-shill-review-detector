@@ -76,6 +76,7 @@ describe('harvestHktvmallProductViaScrapingBee', () => {
     expect(new Set(result.accepted.map((row) => row.native_review_id)).size).toBe(25);
     expect(result.stopped_reason).toBe('end');
     expect(result.n_declared_reviews).toBe(25);
+    expect(result.page_total).toBe(3);
     expect(result.n_http_requests).toBe(3);
     expect(result.scrapingbee_credits).toBe(75);
     expect(result.latency_ms_click).toBe(0);
