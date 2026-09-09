@@ -4,9 +4,14 @@ import { mkdir, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import pino, { type Logger } from 'pino';
 import { loadBrightDataBrowserEnv, loadScrapingBeeEnv } from '../../shared/env.js';
-import type { HarvestPage, HarvestResult } from '../../crawler/harvest/harvest-page.js';
+import type {
+  HarvestPage,
+  HarvestResult,
+  HarvestStoppedReason,
+} from '../../crawler/harvest/harvest-page.js';
 import type { FixtureReviewRaw } from '../../crawler/types.js';
 import {
+  HarvestPaginationShortfallError,
   HarvestTosRequiredError,
   HarvestUsageError,
   UnhydratedReviewPageError,
@@ -16,7 +21,9 @@ import {
   DEFAULT_GOTO_TIMEOUT_MS,
   DEFAULT_MAX_PAGES,
   DEFAULT_WRAPPER_TIMEOUT_MS,
+  expectedHktvmallReviewPageCount,
   harvestHktvmallProductPage,
+  isHarvestCompletenessFailure,
   type HarvestDriverOpts,
 } from '../../crawler/harvest/hktvmall-driver.js';
 import { mergeByNativeReviewId } from '../../crawler/harvest/merge.js';
@@ -64,6 +71,7 @@ export type RunHarvestOptions = HarvestCliOptions & {
   connect?: HarvestConnect;
   scrapingBeeGet?: ScrapingBeeHttpGet;
   logger?: Logger;
+  driverOpts?: Pick<HarvestDriverOpts, 'settleParseTimeoutMs' | 'settleParsePollMs'>;
 };
 
 export type HarvestManifest = {
@@ -76,6 +84,8 @@ export type HarvestManifest = {
   n_rejected: number;
   stamp: string;
   transport?: HarvestTransport;
+  stopped_reason: HarvestStoppedReason | null;
+  page_total: number | null;
 };
 
 export type HarvestCommandResult = {
@@ -313,6 +323,7 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
     wrapperTimeoutMs,
     maxPages,
     ...(maxReviews === undefined ? {} : { maxReviews }),
+    ...(opts.driverOpts ?? {}),
   };
 
   logger.info({
@@ -341,10 +352,13 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
   let n_http_requests = 0;
   let scrapingbeeCreditsSum = 0;
   let sawScrapingBeeCredits = false;
+  let sidecarStoppedReason: HarvestStoppedReason | null = null;
+  let sidecarPageTotal: number | null = null;
 
-  const writeFailManifest = async (failedUrl: string): Promise<void> => {
+  const writeFailManifest = async (failedUrl: string, err: unknown): Promise<void> => {
     const { rows, n_deduped: mergedDeduped } = mergeByNativeReviewId(merged);
     await writeUtf8(outPartial, serializeFixtureJsonl(rows));
+    const shortfall = err instanceof HarvestPaginationShortfallError;
     const manifest: HarvestManifest = {
       ok: false,
       failed_url: failedUrl,
@@ -355,6 +369,8 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
       n_rejected,
       stamp,
       transport,
+      stopped_reason: shortfall ? err.stopped_reason : null,
+      page_total: shortfall ? err.page_total : null,
     };
     await writeUtf8(manifestPath, `${JSON.stringify(manifest)}\n`);
     logger.info({
@@ -402,7 +418,6 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
       n_rejected += harvested.result.rejected.length;
       n_deduped += urlDeduped;
       merged.push(...harvested.result.accepted);
-      n_urls_ok += 1;
       if (harvested.n_http_requests !== undefined) {
         n_http_requests += harvested.n_http_requests;
       }
@@ -427,6 +442,7 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
         ...(harvested.result.n_declared_reviews === null
           ? {}
           : { n_declared_reviews: harvested.result.n_declared_reviews }),
+        ...(harvested.result.page_total === null ? {} : { page_total: harvested.result.page_total }),
         stopped_reason: harvested.result.stopped_reason,
         latency_ms_goto: harvested.result.latency_ms_goto,
         latency_ms_click: harvested.result.latency_ms_click,
@@ -447,6 +463,32 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
           product_id: harvested.result.product_id,
         });
       }
+      const expected_pages = expectedHktvmallReviewPageCount(
+        harvested.result.page_total,
+        harvested.result.n_declared_reviews,
+      );
+      if (isHarvestCompletenessFailure(harvested.result) && expected_pages !== null) {
+        logger.error({
+          event: 'harvest_pagination_shortfall',
+          store_id: harvested.result.store_id,
+          product_id: harvested.result.product_id,
+          n_pages: harvested.result.n_pages,
+          page_total: harvested.result.page_total,
+          expected_pages,
+          n_accepted: harvested.result.accepted.length,
+          n_declared_reviews: harvested.result.n_declared_reviews,
+          stopped_reason: harvested.result.stopped_reason,
+        });
+        throw new HarvestPaginationShortfallError({
+          url: target.href,
+          n_pages: harvested.result.n_pages,
+          page_total: harvested.result.page_total,
+          n_declared_reviews: harvested.result.n_declared_reviews,
+          n_accepted: harvested.result.accepted.length,
+          expected_pages,
+          stopped_reason: harvested.result.stopped_reason,
+        });
+      }
       const incomplete =
         harvested.result.stopped_reason === 'unchanged_ids' ||
         (harvested.result.n_declared_reviews !== null &&
@@ -463,6 +505,9 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
         });
       }
 
+      sidecarStoppedReason = harvested.result.stopped_reason;
+      sidecarPageTotal = harvested.result.page_total;
+      n_urls_ok += 1;
       const { rows } = mergeByNativeReviewId(merged);
       await writeUtf8(outPartial, serializeFixtureJsonl(rows));
     } catch (err) {
@@ -476,7 +521,7 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
         });
       }
       try {
-        await writeFailManifest(target.href);
+        await writeFailManifest(target.href, err);
       } catch {
         // Preserve the harvest error even if sidecar write fails.
       }
@@ -498,6 +543,8 @@ export async function runHarvest(opts: RunHarvestOptions): Promise<HarvestComman
     n_rejected,
     stamp,
     transport,
+    stopped_reason: targets.length === 1 ? sidecarStoppedReason : null,
+    page_total: targets.length === 1 ? sidecarPageTotal : null,
   };
   await writeUtf8(manifestPath, `${JSON.stringify(manifest)}\n`);
 
