@@ -6,6 +6,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runHarvest, type HarvestConnect } from '../../src/cli/commands/harvest.js';
 import {
+  HarvestPaginationShortfallError,
   HarvestTosRequiredError,
   HarvestUsageError,
 } from '../../src/crawler/harvest/errors.js';
@@ -295,9 +296,13 @@ describe('runHarvest --transport scrapingbee mock HTML API', () => {
     const manifest = JSON.parse(await readFile(result.manifestPath, 'utf8')) as {
       ok: boolean;
       failed_url: string | null;
+      stopped_reason: string | null;
+      page_total: number | null;
     };
     expect(manifest.ok).toBe(true);
     expect(manifest.failed_url).toBeNull();
+    expect(manifest.stopped_reason).toBe('end');
+    expect(manifest.page_total).toBe(3);
     expect(existsSync(`${result.outPath}.partial`)).toBe(false);
     expect(text()).toMatch(/n_pages=3/);
     expect(text()).toMatch(/n_accepted=25/);
@@ -344,10 +349,131 @@ describe('runHarvest --transport scrapingbee mock HTML API', () => {
       ok: boolean;
       failed_url: string;
       n_urls_ok: number;
+      stopped_reason: string | null;
+      page_total: number | null;
     };
     expect(manifest.ok).toBe(false);
     expect(manifest.failed_url).toBe(URL_2);
     expect(manifest.n_urls_ok).toBe(1);
+    expect(manifest.stopped_reason).toBeNull();
+    expect(manifest.page_total).toBeNull();
     expect(existsSync(`${out}.partial`)).toBe(true);
+  });
+
+  it('rejects HarvestPaginationShortfallError when page 1 repeats page-0 ids', async () => {
+    const dir = await tmp();
+    const out = path.join(dir, 'sb-stall.jsonl');
+    await writeFile(out, '{"old":true}\n', 'utf8');
+    const connect = vi.fn<HarvestConnect>(async () => {
+      throw new Error('connect must not run');
+    });
+    let calls = 0;
+    const scrapingBeeGet: ScrapingBeeHttpGet = async () => {
+      const pageIndex = calls;
+      calls += 1;
+      if (pageIndex === 0) {
+        return {
+          status: 200,
+          headers: new Headers(),
+          bodyText: envelope(`${THREE_PAGE_CHROME}${wrappersHtml('p0', 10)}`),
+        };
+      }
+      if (pageIndex === 1) {
+        return {
+          status: 200,
+          headers: new Headers(),
+          bodyText: envelope(wrappersHtml('p0', 10)),
+        };
+      }
+      throw new Error(`unexpected pageIndex ${String(pageIndex)}`);
+    };
+    await expect(
+      runHarvest({
+        transport: 'scrapingbee',
+        url: [VALID_URL],
+        iAcceptTos: true,
+        out,
+        cwd: dir,
+        env: sbKeyEnv(),
+        now: new Date('2026-09-09T12:00:00.000Z'),
+        stdout: { write: () => true },
+        connect,
+        scrapingBeeGet,
+        logger: silentLogger(),
+      }),
+    ).rejects.toBeInstanceOf(HarvestPaginationShortfallError);
+    expect(connect).not.toHaveBeenCalled();
+    expect(await readFile(out, 'utf8')).toBe('{"old":true}\n');
+    const partial = await readFile(`${out}.partial`, 'utf8');
+    expect(partial.split('\n').filter((line) => line.length > 0)).toHaveLength(10);
+    const manifest = JSON.parse(await readFile(path.join(dir, 'sb-stall.manifest.json'), 'utf8')) as {
+      ok: boolean;
+      failed_url: string;
+      n_urls_ok: number;
+      n_urls_failed: number;
+      n_accepted: number;
+      n_pages: number;
+      n_rejected: number;
+      stamp: string;
+      transport: string;
+      stopped_reason: string | null;
+      page_total: number | null;
+    };
+    expect(manifest).toEqual({
+      ok: false,
+      failed_url: VALID_URL,
+      n_urls_ok: 0,
+      n_urls_failed: 1,
+      n_accepted: 10,
+      n_pages: 1,
+      n_rejected: 0,
+      stamp: '20260909T120000Z',
+      transport: 'scrapingbee',
+      stopped_reason: 'unchanged_ids',
+      page_total: 3,
+    });
+  });
+
+  it('rejects HarvestPaginationShortfallError when 共N頁 is missing but declared=25', async () => {
+    const dir = await tmp();
+    const connect = vi.fn<HarvestConnect>(async () => {
+      throw new Error('connect must not run');
+    });
+    const scrapingBeeGet: ScrapingBeeHttpGet = async () => ({
+      status: 200,
+      headers: new Headers(),
+      bodyText: envelope(`<span class="comment__count">25</span>${wrappersHtml('p0', 10)}`),
+    });
+    await expect(
+      runHarvest({
+        transport: 'scrapingbee',
+        url: [VALID_URL],
+        iAcceptTos: true,
+        out: path.join(dir, 'sb-declared.jsonl'),
+        cwd: dir,
+        env: sbKeyEnv(),
+        stdout: { write: () => true },
+        connect,
+        scrapingBeeGet,
+        logger: silentLogger(),
+      }),
+    ).rejects.toBeInstanceOf(HarvestPaginationShortfallError);
+    expect(connect).not.toHaveBeenCalled();
+    const manifest = JSON.parse(
+      await readFile(path.join(dir, 'sb-declared.manifest.json'), 'utf8'),
+    ) as {
+      ok: boolean;
+      n_urls_ok: number;
+      n_accepted: number;
+      n_pages: number;
+      stopped_reason: string | null;
+      page_total: number | null;
+    };
+    expect(manifest.ok).toBe(false);
+    expect(manifest.n_urls_ok).toBe(0);
+    expect(manifest.n_accepted).toBe(10);
+    expect(manifest.n_pages).toBe(1);
+    expect(manifest.stopped_reason).toBe('end');
+    expect(manifest.page_total).toBeNull();
   });
 });
