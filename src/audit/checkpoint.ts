@@ -151,11 +151,18 @@ export function buildSelectPendingSql(config: BqConfig, forceRescore: boolean): 
   const assessments = quotedTable(config, 'gemini_review_assessments');
   const stage2 = quotedTable(config, 'stage2_suspicious_for_gemini');
   const raw = quotedTable(config, 'raw_reviews');
-  const errors = quotedTable(config, 'gemini_assessment_errors');
   const alreadyScored = forceRescore
     ? ''
     : `
   AND a.review_id IS NULL`;
+  const skipNonRetryableErrors = forceRescore
+    ? ''
+    : `
+  AND s.review_id NOT IN (
+    SELECT review_id FROM ${quotedTable(config, 'gemini_assessment_errors')}
+    WHERE retryable = FALSE
+      AND pipeline_run_id = @pipeline_run_id
+  )`;
   return `SELECT s.review_id, s.comment_text, s.store_id, s.product_id,
        s.matched_seed_id, s.matched_seed_category, raw.content_hash
 FROM ${stage2} s
@@ -163,12 +170,7 @@ JOIN ${raw} raw ON raw.review_id = s.review_id
 LEFT JOIN ${assessments} a
   ON a.review_id = s.review_id
  AND a.pipeline_run_id = s.pipeline_run_id
-WHERE s.pipeline_run_id = @pipeline_run_id${alreadyScored}
-  AND s.review_id NOT IN (
-    SELECT review_id FROM ${errors}
-    WHERE retryable = FALSE
-      AND pipeline_run_id = @pipeline_run_id
-  )`;
+WHERE s.pipeline_run_id = @pipeline_run_id${alreadyScored}${skipNonRetryableErrors}`;
 }
 
 export function buildMergeAssessmentSql(config: BqConfig): string {
@@ -228,6 +230,13 @@ WHEN MATCHED THEN UPDATE SET
   output_tokens = S.output_tokens,
   assessed_at = S.assessed_at,
   signal_span_mismatch_count = S.signal_span_mismatch_count`;
+}
+
+export function buildDeleteErrorSql(config: BqConfig): string {
+  const errors = quotedTable(config, 'gemini_assessment_errors');
+  return `DELETE FROM ${errors}
+WHERE pipeline_run_id = @pipeline_run_id
+  AND review_id = @review_id`;
 }
 
 export function buildInsertErrorSql(config: BqConfig): string {
@@ -379,6 +388,10 @@ WHERE pipeline_run_id = @pipeline_run_id AND score_source = 'copied'`,
         output_tokens: row.output_tokens,
       });
       await runQuery(bq, config, sql, params);
+      await runQuery(bq, config, buildDeleteErrorSql(config), {
+        pipeline_run_id: row.pipeline_run_id,
+        review_id: row.review_id,
+      });
     },
     async insertError(row) {
       const params: Record<string, unknown> = {

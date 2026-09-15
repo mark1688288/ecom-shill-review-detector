@@ -213,7 +213,9 @@ describe('checkpoint SQL', () => {
     expect(copy.indexOf('WHERE s.pipeline_run_id')).toBeGreaterThan(copy.indexOf('JOIN'));
     expect(copy.indexOf('QUALIFY')).toBeGreaterThan(copy.indexOf('WHERE s.pipeline_run_id'));
     expect(pending).toContain('a.review_id IS NULL');
+    expect(pending).toContain('retryable = FALSE');
     expect(force).not.toContain('a.review_id IS NULL');
+    expect(force).not.toContain('retryable = FALSE');
     expect(merge).toContain('WHEN MATCHED THEN UPDATE SET');
   });
 });
