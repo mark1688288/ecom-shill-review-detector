@@ -118,7 +118,7 @@ export function createMemoryCheckpoint(db: MemoryAuditDb): AuditCheckpoint {
       );
       const pending: PendingReview[] = [];
       for (const stage of db.stage2.filter((row) => row.pipeline_run_id === input.pipelineRunId)) {
-        if (blocked.has(stage.review_id)) {
+        if (!input.forceRescore && blocked.has(stage.review_id)) {
           continue;
         }
         if (!input.forceRescore && scored.has(stage.review_id)) {
@@ -147,9 +147,13 @@ export function createMemoryCheckpoint(db: MemoryAuditDb): AuditCheckpoint {
       );
       if (idx === -1) {
         db.assessments.push({ ...row });
-        return;
+      } else {
+        db.assessments[idx] = { ...row };
       }
-      db.assessments[idx] = { ...row };
+      db.errors = db.errors.filter(
+        (err) =>
+          !(err.pipeline_run_id === row.pipeline_run_id && err.review_id === row.review_id),
+      );
     },
     async insertError(row) {
       db.errors.push({ ...row });

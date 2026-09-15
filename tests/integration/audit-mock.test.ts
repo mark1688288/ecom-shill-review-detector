@@ -349,6 +349,36 @@ describe('audit mock call-count', () => {
     expect(track.max).toBeLessThanOrEqual(8);
   });
 
+  it('--force-rescore retries a non-retryable DLQ row and clears the error', async () => {
+    const db = createMemoryAuditDb();
+    seedRun(db, RUN_A, 1);
+    const fail: GeminiClient = {
+      modelId: 'mock',
+      generate: async () => {
+        throw { status: 400, message: 'Request contains an invalid argument.' };
+      },
+    };
+    await runWithDb(db, { pipelineRunId: RUN_A, gemini: fail });
+    expect(db.errors).toHaveLength(1);
+    expect(db.assessments).toHaveLength(0);
+
+    const skipped = countingGemini();
+    const second = await runWithDb(db, { pipelineRunId: RUN_A, gemini: skipped.client });
+    expect(second.n_gemini_http_calls).toBe(0);
+    expect(db.errors).toHaveLength(1);
+
+    const rescore = countingGemini();
+    const third = await runWithDb(db, {
+      pipelineRunId: RUN_A,
+      gemini: rescore.client,
+      forceRescore: true,
+    });
+    expect(third.n_scored).toBe(1);
+    expect(third.n_gemini_http_calls).toBe(1);
+    expect(db.errors).toHaveLength(0);
+    expect(db.assessments).toHaveLength(1);
+  });
+
   it('DLQ schema failures without retrying', async () => {
     const db = createMemoryAuditDb();
     seedRun(db, RUN_A, 1);
