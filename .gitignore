@@ -30,7 +30,11 @@ pnpm-debug.log*
 .DS_Store
 .idea/
 
-# local scratch notes (not the design spec)
+# local-only docs (keep harvest-live-workflow.md tracked)
+docs/design.md
+docs/design-bright-data-scrapping-pro-browser-hktvmall.md
+docs/design-scrapingbee-hktvmall-reviews.md
+docs/fix-harvest-bright-data-hktvmall.md
 docs/gcp-commands.md
 docs/chat-session-01.md
 docs/chat-session-02.md
