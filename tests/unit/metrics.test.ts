@@ -240,9 +240,10 @@ describe('CI fixture regression contracts', () => {
     expect(readme).toContain('pnpm cli -- analyze --continue-latest');
     expect(readme).toContain('pnpm cli -- report --continue-latest');
     expect(readme).toContain('region-${GCP_LOCATION}');
-    expect(readme).toMatch(/不.*驗證 SQL 語意/);
-    expect(readme).toMatch(/不斷言.*35%\/5%/);
+    expect(readme).toMatch(/does not\*\* validate SQL semantics/);
+    expect(readme).toMatch(/does not\*\* assert the 35%\/5%/);
     expect(readme).not.toMatch(/CI 驗證了 SQL/);
+    expect(readme).not.toMatch(/CI verifies SQL|CI verified SQL/);
   });
 
   it('CI runs fixture crawl dry-run and does not set GCP_PROJECT', () => {
