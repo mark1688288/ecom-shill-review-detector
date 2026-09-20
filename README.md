@@ -1,5 +1,15 @@
 # ecom-shill-review-detector
 
+[![License: GPL-3.0](https://img.shields.io/github/license/mark1688288/ecom-shill-review-detector?style=flat-square)](LICENSE)
+![Version](https://img.shields.io/badge/version-0.1.0-blue?style=flat-square)
+![Node](https://img.shields.io/badge/Node.js-22+-339933?style=flat-square&logo=nodedotjs&logoColor=white)
+![pnpm](https://img.shields.io/badge/pnpm-9-F69220?style=flat-square&logo=pnpm&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Gemini](https://img.shields.io/badge/Gemini_Flash-audit-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)
+![BigQuery](https://img.shields.io/badge/BigQuery-pipeline-669DF6?style=flat-square&logo=googlebigquery&logoColor=white)
+![CI](https://img.shields.io/github/actions/workflow/status/mark1688288/ecom-shill-review-detector/ci.yml?style=flat-square&label=CI)
+![Last commit](https://img.shields.io/github/last-commit/mark1688288/ecom-shill-review-detector?style=flat-square)
+
 CLI for detecting Cantonese e-commerce shill / paid-review patterns. Personal research and analysis tool: **statistics are not legal facts**.
 
 Licensed under [GNU GPL-3.0-only](LICENSE). New source files carry `SPDX-License-Identifier: GPL-3.0-only`.
