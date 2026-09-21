@@ -13,6 +13,12 @@ import type { HarvestLocator, HarvestPage } from '../harvest/harvest-page.js';
 const COUNTRY_SUFFIX_RE = /-country-[a-z]{2}$/i;
 const CONNECT_TIMEOUT_MS = 120_000;
 
+/** Playwright force:true turns a retryable off-screen click into this hard error. */
+function isOutsideViewportError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /outside of the viewport/i.test(msg);
+}
+
 /** String page function so tsc (lib ES2022 / types node) never sees `document`. */
 const WAIT_NEW_REVIEW_IDS = `(prev) => {
   const nodes = document.querySelectorAll('div.product-review-wrapper[data-reviewid]');
@@ -69,8 +75,31 @@ class PlaywrightLocatorAdapter implements HarvestLocator {
       if (isTimeoutError(err)) {
         throw err;
       }
+      if (isOutsideViewportError(err)) {
+        try {
+          await this.dispatchDomClick(opts?.timeout);
+          return;
+        } catch (inner) {
+          if (isTimeoutError(inner)) {
+            throw inner;
+          }
+          throw new HarvestSessionDroppedError(inner);
+        }
+      }
       throw new HarvestSessionDroppedError(err);
     }
+  }
+
+  /**
+   * Pointer click needs a point inside the CDP viewport. After one scrollIntoView,
+   * `force: true` throws instead of retrying. DOM click still fires the pager handler.
+   */
+  private async dispatchDomClick(timeoutMs?: number): Promise<void> {
+    if (timeoutMs === undefined) {
+      await this.loc.dispatchEvent('click');
+      return;
+    }
+    await this.loc.dispatchEvent('click', undefined, { timeout: timeoutMs });
   }
 
   async count(): Promise<number> {

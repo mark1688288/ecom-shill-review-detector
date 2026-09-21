@@ -42,6 +42,70 @@ describe('adaptPlaywrightPage.click', () => {
     await page.locator('[data-tab="reviewTab"]').click({ timeout: 30_000, force: true });
     expect(calls).toEqual([{ timeout: 30_000, force: true }]);
   });
+
+  it('falls back to dispatchEvent click when the element is outside the viewport', async () => {
+    const events: string[] = [];
+    const page = adaptPlaywrightPage({
+      locator: () => ({
+        click: async () => {
+          throw new Error(
+            'locator.click: Element is outside of the viewport\nCall log:\n  - scrolling into view if needed',
+          );
+        },
+        dispatchEvent: async (type: string) => {
+          events.push(type);
+        },
+      }),
+    } as never);
+    await expect(
+      page.locator('a').click({ timeout: 30_000, force: true }),
+    ).resolves.toBeUndefined();
+    expect(events).toEqual(['click']);
+  });
+
+  it('does not wrap outside-of-viewport as HarvestSessionDroppedError after a successful DOM click', async () => {
+    const page = adaptPlaywrightPage({
+      locator: () => ({
+        click: async () => {
+          throw new Error('Element is outside of the viewport');
+        },
+        dispatchEvent: async () => undefined,
+      }),
+    } as never);
+    await expect(page.locator('a').click({ force: true })).resolves.toBeUndefined();
+  });
+
+  it('still throws HarvestSessionDroppedError on target closed', async () => {
+    const page = adaptPlaywrightPage({
+      locator: () => ({
+        click: async () => {
+          throw new Error('Target closed');
+        },
+        dispatchEvent: async () => {
+          throw new Error('dispatchEvent should not run');
+        },
+      }),
+    } as never);
+    await expect(page.locator('a').click({ force: true })).rejects.toBeInstanceOf(
+      HarvestSessionDroppedError,
+    );
+  });
+
+  it('wraps a failed DOM-click fallback as HarvestSessionDroppedError', async () => {
+    const page = adaptPlaywrightPage({
+      locator: () => ({
+        click: async () => {
+          throw new Error('Element is outside of the viewport');
+        },
+        dispatchEvent: async () => {
+          throw new Error('Target closed');
+        },
+      }),
+    } as never);
+    await expect(page.locator('a').click({ force: true })).rejects.toBeInstanceOf(
+      HarvestSessionDroppedError,
+    );
+  });
 });
 
 describe('adaptPlaywrightPage.waitForNewReviewIds', () => {
